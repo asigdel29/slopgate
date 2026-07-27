@@ -4,6 +4,7 @@
 
 import type { Callable, SlopConfig, SlopMetrics } from "./config.ts";
 import { DEGRADATION_VELOCITY, HIGH_COMPLEXITY_CUTOFF, HUMAN_PANEL_REFERENCE } from "./config.ts";
+import { mass } from "./metrics.ts";
 
 function pct(value: number): string {
 	return value.toFixed(4);
@@ -13,7 +14,7 @@ function pct(value: number): string {
 export function topOffenders(callables: Callable[], limit: number): Callable[] {
 	return [...callables]
 		.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF && c.sloc > 0)
-		.sort((a, b) => b.complexity * Math.sqrt(b.sloc) - a.complexity * Math.sqrt(a.sloc))
+		.sort((a, b) => mass(b.complexity, b.sloc) - mass(a.complexity, a.sloc))
 		.slice(0, limit);
 }
 
@@ -56,7 +57,7 @@ export function formatReport(
 	lines.push("  different language, so they are context here and never a pass/fail line.");
 
 	const ceilings = config.thresholds;
-	if (ceilings.erosion !== null || ceilings.verbosity !== null) {
+	if (typeof ceilings.erosion === "number" || typeof ceilings.verbosity === "number") {
 		lines.push("");
 		lines.push(
 			`  Ratchet ceilings: erosion ${ceilings.erosion ?? "uncalibrated"}, ` +
@@ -64,7 +65,7 @@ export function formatReport(
 		);
 		// Headroom against the paper's human-median velocity is the number that
 		// actually tells you whether the next commit has room, so show it.
-		if (ceilings.erosion !== null) {
+		if (typeof ceilings.erosion === "number") {
 			const headroom = ceilings.erosion - metrics.erosion;
 			lines.push(
 				`  Erosion headroom ${headroom >= 0 ? "+" : ""}${headroom.toFixed(4)} ` +
@@ -72,7 +73,7 @@ export function formatReport(
 					`an agent checkpoint +${DEGRADATION_VELOCITY.agentPerCheckpoint.erosion}).`,
 			);
 		}
-		if (ceilings.verbosity !== null) {
+		if (typeof ceilings.verbosity === "number") {
 			const headroom = ceilings.verbosity - metrics.verbosity;
 			lines.push(
 				`  Verbosity headroom ${headroom >= 0 ? "+" : ""}${headroom.toFixed(4)} ` +
@@ -89,7 +90,7 @@ export function formatReport(
 		for (const c of offenders) {
 			lines.push(
 				`    ${c.file}:${c.startLine + 1}  CC ${c.complexity}, ${c.sloc} SLOC, ` +
-					`mass ${(c.complexity * Math.sqrt(c.sloc)).toFixed(0)}`,
+					`mass ${mass(c.complexity, c.sloc).toFixed(0)}`,
 			);
 		}
 	}

@@ -15,7 +15,8 @@
 // Exit codes: 0 pass, 1 a metric exceeded its ceiling or the config is stale.
 
 import { isAbsolute, join, resolve } from "node:path";
-import type { SlopConfig } from "../src/config.ts";
+import type { Language, SlopConfig } from "../src/config.ts";
+import { LANGUAGES } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
 import { formatFailure, formatReport } from "../src/report.ts";
 
@@ -61,16 +62,75 @@ export function parseArgs(argv: string[]): Options {
 	};
 }
 
-async function loadConfig(configPath: string): Promise<SlopConfig> {
+/**
+ * Read and VALIDATE the config.
+ *
+ * Validation is not ceremony here. A missing or misspelled `thresholds` key
+ * yields `undefined`, and `undefined` compares false against every ceiling test
+ * — so an unvalidated typo silently disables the gate and reports a green build
+ * on a codebase nothing measured. A gate that can be switched off by a typo is
+ * worse than no gate, because it looks like one.
+ */
+export async function loadConfig(configPath: string): Promise<SlopConfig> {
 	const file = Bun.file(configPath);
 	if (!(await file.exists())) {
 		throw new Error(
 			`missing config at ${configPath}\n` +
 				"Every repository needs its own: which files to measure, and the ratchet " +
-				"ceilings. See examples/slop.config.json.",
+				"ceilings. See examples/slop.config.json in the slopgate repository.",
 		);
 	}
-	return (await file.json()) as SlopConfig;
+
+	let parsed: unknown;
+	try {
+		parsed = await file.json();
+	} catch (err) {
+		throw new Error(`${configPath} is not valid JSON: ${(err as Error).message}`);
+	}
+
+	const config = parsed as SlopConfig;
+	const problems: string[] = [];
+
+	if (typeof config?.languages !== "object" || config.languages === null) {
+		problems.push("`languages` must be an object with at least one language");
+	} else if (Object.keys(config.languages).length === 0) {
+		problems.push("`languages` is empty — nothing would be measured");
+	} else {
+		for (const [name, lang] of Object.entries(config.languages)) {
+			if (!LANGUAGES.includes(name as Language)) {
+				problems.push(`unknown language '${name}' (supported: ${LANGUAGES.join(", ")})`);
+			} else if (!Array.isArray(lang?.include) || lang.include.length === 0) {
+				problems.push(`languages.${name}.include must be a non-empty array of globs`);
+			}
+		}
+	}
+
+	if (typeof config?.thresholds !== "object" || config.thresholds === null) {
+		problems.push("`thresholds` must be an object with `erosion` and `verbosity`");
+	} else {
+		for (const key of ["erosion", "verbosity"] as const) {
+			const value = config.thresholds[key];
+			if (value !== null && typeof value !== "number") {
+				problems.push(
+					`thresholds.${key} must be a number or null (explicitly uncalibrated), got ${
+						value === undefined ? "undefined — is the key missing or misspelt?" : typeof value
+					}`,
+				);
+			}
+		}
+	}
+
+	if (typeof config?.calibratedAtRulePackVersion !== "number") {
+		problems.push("`calibratedAtRulePackVersion` must be a number");
+	}
+
+	if (problems.length > 0) {
+		throw new Error(
+			`${configPath} is not a usable slop config:\n  - ${problems.join("\n  - ")}`,
+		);
+	}
+
+	return config;
 }
 
 async function main(): Promise<number> {
@@ -112,7 +172,7 @@ async function main(): Promise<number> {
 	];
 
 	for (const [name, value, ceiling] of checks) {
-		if (ceiling === null) {
+		if (typeof ceiling !== "number") {
 			console.log("");
 			console.log(`  ${name} has no ceiling yet — reporting only. Calibrate to start gating.`);
 			continue;
@@ -127,4 +187,9 @@ async function main(): Promise<number> {
 	return failed ? 1 : 0;
 }
 
-process.exit(await main());
+// Only run when executed directly. Without this guard, importing anything from
+// this file — as the config tests do — runs the whole gate and then exits the
+// test process.
+if (import.meta.main) {
+	process.exit(await main());
+}

@@ -5,11 +5,11 @@
 // renamed identifiers, which is what "structural" means) and covers both
 // TypeScript and Swift with one tool.
 
-import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describeMissing, resolveTool } from "./bin.ts";
+import { resolveTool } from "./bin.ts";
+import { runTool } from "./process.ts";
 import type { FileMeasurement } from "./config.ts";
 
 /**
@@ -24,29 +24,6 @@ type JscpdFileRef = { name: string; start: number; end: number };
 type JscpdReport = {
 	duplicates?: Array<{ firstFile: JscpdFileRef; secondFile: JscpdFileRef }>;
 };
-
-function run(bin: string, args: string[], cwd: string): Promise<void> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-		let stderr = "";
-		child.stderr.on("data", (chunk) => {
-			stderr += chunk;
-		});
-		child.on("error", (err) => {
-			reject(new Error(`${describeMissing("jscpd", cwd)}\n(${err.message})`));
-		});
-		// jscpd exits non-zero when a threshold is configured and exceeded. We
-		// configure no threshold — the gate owns that decision — so any non-zero
-		// exit is a genuine failure.
-		child.on("close", (code) => {
-			if (code !== 0) {
-				reject(new Error(`jscpd exited ${code}: ${stderr.trim()}`));
-				return;
-			}
-			resolve();
-		});
-	});
-}
 
 /**
  * Return the set of duplicated lines, keyed `file:line` with zero-based lines to
@@ -66,7 +43,13 @@ export async function findCloneLines(
 
 	const reportDir = await mkdtemp(join(tmpdir(), "slop-jscpd-"));
 	try {
-		await run(
+		// The whole file list goes in one invocation, deliberately unbatched:
+		// clone detection is inherently cross-file, so splitting it would drop
+		// every clone spanning a batch boundary. That makes argv length a real
+		// ceiling on repository size; runTool reports E2BIG as itself rather than
+		// as a missing-tool error.
+		await runTool(
+			"jscpd",
 			resolveTool("jscpd", root),
 			[
 				...measurements.map((m) => m.file),
@@ -80,7 +63,7 @@ export async function findCloneLines(
 				String(MIN_TOKENS),
 				"--silent",
 			],
-			root,
+			{ cwd: root, root },
 		);
 
 		const raw = await readFile(join(reportDir, "jscpd-report.json"), "utf8");

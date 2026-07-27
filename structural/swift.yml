@@ -22,12 +22,19 @@ rule:
   has:
     kind: function_body
 ---
+# The function_body guard matches callable-function-declaration above: a
+# protocol's `init(x:)` requirement has no body, so it has no complexity to
+# measure. Without the guard it still lands in Eq. 3's denominator as a CC 1 /
+# SLOC 1 entry, diluting erosion downward and moving the metric whenever a
+# protocol gains or loses an init requirement.
 id: callable-init
 language: swift
 severity: hint
 message: callable
 rule:
   kind: init_declaration
+  has:
+    kind: function_body
 ---
 id: callable-deinit
 language: swift
@@ -35,6 +42,8 @@ severity: hint
 message: callable
 rule:
   kind: deinit_declaration
+  has:
+    kind: function_body
 ---
 # Computed properties, which is how SwiftUI's `var body: some View { … }` parses.
 # Counting `body` as a callable is deliberate — it is where SwiftUI view

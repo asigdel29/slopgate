@@ -5,11 +5,11 @@
 // the slop-rule hits for Eq. 4. Rule ids carry the meaning — see
 // structural/typescript.yml for the id contract.
 
-import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { describeMissing, resolveTool } from "./bin.ts";
+import { resolveTool } from "./bin.ts";
+import { runTool } from "./process.ts";
 
 /** A single ast-grep match, narrowed to the fields the engine uses. */
 export type Match = {
@@ -30,55 +30,6 @@ export type Match = {
  */
 const BATCH_SIZE = 400;
 
-function run(bin: string, args: string[], root: string): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
-		let stdout = "";
-		let stderr = "";
-		child.stdout.on("data", (chunk) => {
-			stdout += chunk;
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += chunk;
-		});
-		child.on("error", (err) => {
-			reject(new Error(`${describeMissing("ast-grep", root)}\n(${err.message})`));
-		});
-		child.on("close", (code) => {
-			// ANY non-zero exit is a hard failure. ast-grep only exits non-zero for
-			// error-severity matches or a genuine fault (unparseable rule file,
-			// unreadable path); every rule shipped here is `hint` or `warning`, both
-			// of which exit 0 even when they match. Accepting a non-zero exit
-			// because some stdout arrived would mean computing metrics from a
-			// partial scan — a wrong number that looks like a real one, which is
-			// worse than a failed build.
-			if (code !== 0) {
-				reject(
-					new Error(
-						`ast-grep exited ${code}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
-					),
-				);
-				return;
-			}
-			resolve(stdout);
-		});
-	});
-}
-
-/**
- * Re-target a rule file at a different ast-grep language, returning the path to
- * a temporary copy.
- *
- * This exists for one reason: `.tsx` is a separate grammar from `.ts` in
- * ast-grep, and a rule declaring `language: typescript` will not match a `.tsx`
- * file at all. The alternative — authoring every rule twice — would mean
- * maintaining two copies of a 200-rule pack that must never drift. The TSX
- * grammar is a superset of TypeScript's, so every node kind the rules reference
- * exists in both.
- *
- * Rule ids get a suffix to stay unique, which is safe because the engine reads
- * ids by prefix (`callable-`, `dp-`, `meta-comment`), never by exact match.
- */
 export function retargetRuleText(source: string, targetLanguage: string, idSuffix: string): string {
 	return source
 		.split("\n")
@@ -158,11 +109,24 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
 		const batch = files.slice(i, i + BATCH_SIZE);
-		const stdout = await run(
+		const { stdout, stderr } = await runTool(
+			"ast-grep",
 			bin,
 			["scan", flag, source.path, "--json", ...batch.map((f) => (cwd ? `${cwd}/${f}` : f))],
-			cwd,
+			{ cwd, root: cwd },
 		);
+
+		// ast-grep exits 0 even when it could not read some of the paths it was
+		// given, reporting them only on stderr ("ERROR: <path>: No such file").
+		// Those files would then contribute their lines to the LOC denominator
+		// while contributing no callables, silently under-reporting erosion. A
+		// successful scan writes nothing to stderr, so anything here is a fault.
+		if (stderr.trim() !== "") {
+			throw new Error(
+				`ast-grep could not process every file:\n${stderr.trim()}\n` +
+					"Refusing to report a metric computed from a partial scan.",
+			);
+		}
 
 		const trimmed = stdout.trim();
 		if (trimmed === "") continue;
