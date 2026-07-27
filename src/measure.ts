@@ -27,8 +27,22 @@ import { measureFiles, resolveFiles } from "./sources.ts";
  */
 export const PACKAGE_DIR = dirname(import.meta.dir);
 
+/**
+ * Where the slop rule pack lives.
+ *
+ * `SLOP_RULES_DIR` overrides it, which lets a project point at its own rules and
+ * — just as importantly — lets the tests exercise the rule-pack path without
+ * mutating the shipped pack. Upstream's implementation has the same escape hatch
+ * (`AST_GREP_RULES_PATH`).
+ *
+ * The directory must contain a `VERSION` file and one subdirectory per language.
+ */
+export function rulesDir(): string {
+	return process.env.SLOP_RULES_DIR ?? join(PACKAGE_DIR, "rules");
+}
+
 export async function loadRulePackVersion(): Promise<number> {
-	const file = Bun.file(join(PACKAGE_DIR, "rules", "VERSION"));
+	const file = Bun.file(join(rulesDir(), "VERSION"));
 	if (!(await file.exists())) return 0;
 	const parsed = Number.parseInt((await file.text()).trim(), 10);
 	if (Number.isNaN(parsed)) throw new Error("rules/VERSION does not contain an integer");
@@ -54,7 +68,7 @@ async function scanRulePack(
 	workspace: string,
 	root: string,
 ): Promise<Set<string>> {
-	const authoredDir = join(PACKAGE_DIR, "rules", language);
+	const authoredDir = join(rulesDir(), language);
 	try {
 		if ((await readdir(authoredDir)).filter((f) => f.endsWith(".yml")).length === 0) {
 			return new Set();
@@ -70,10 +84,14 @@ async function scanRulePack(
 			? authoredDir
 			: await retargetRuleDir(authoredDir, dialect.astGrepLanguage, dialect.idSuffix, workspace);
 
+	// A whole rule DIRECTORY can only be scanned through an ast-grep project
+	// config, which takes --config, not --rule. The sgconfig is written to the
+	// workspace root rather than inside ruleDir: anything under a `ruleDirs`
+	// entry is itself parsed as a rule, and the config is not a valid rule.
 	const sgconfig = join(workspace, `sgconfig-${dialect.astGrepLanguage}.yml`);
 	await writeFile(sgconfig, `ruleDirs:\n  - ${ruleDir}\n`, "utf8");
 
-	const matches = await scan(sgconfig, files, root);
+	const matches = await scan({ kind: "project", path: sgconfig }, files, root);
 	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
 	const flagged = new Set<string>();
 
@@ -130,7 +148,7 @@ export async function measure(config: SlopConfig, root: string): Promise<Measure
 								workspace,
 							);
 
-				const matches = await scan(structuralRules, files, root);
+				const matches = await scan({ kind: "rule", path: structuralRules }, files, root);
 
 				const measurements = await measureFiles(
 					files,

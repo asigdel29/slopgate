@@ -170,6 +170,17 @@ and does not bias the trend the ratchet gates on. A proper fix needs
 per-statement arithmetic in the engine rather than a rule, and would re-baseline
 every Swift consumer's ceiling.
 
+## Environment overrides
+
+| variable | effect |
+|---|---|
+| `SLOP_RULES_DIR` | use a different rule pack (must contain `VERSION` and one directory per language) |
+| `SLOP_AST_GREP` | path to a specific ast-grep binary |
+| `SLOP_JSCPD` | path to a specific jscpd binary |
+
+Pin the analyser paths in CI if you need the metric to be reproducible across
+runners — a different analyser version can move the number.
+
 ## Vendoring
 
 For CI without a network dependency:

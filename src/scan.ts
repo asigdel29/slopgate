@@ -45,11 +45,19 @@ function run(bin: string, args: string[], root: string): Promise<string> {
 			reject(new Error(`${describeMissing("ast-grep", root)}\n(${err.message})`));
 		});
 		child.on("close", (code) => {
-			// ast-grep exits non-zero when a rule matches at error severity. Every
-			// rule the engine ships is `hint`, so a non-zero exit here is a real
-			// failure (bad rule file, unreadable path) and must not be swallowed.
-			if (code !== 0 && stdout.trim() === "") {
-				reject(new Error(`ast-grep exited ${code}: ${stderr.trim()}`));
+			// ANY non-zero exit is a hard failure. ast-grep only exits non-zero for
+			// error-severity matches or a genuine fault (unparseable rule file,
+			// unreadable path); every rule shipped here is `hint` or `warning`, both
+			// of which exit 0 even when they match. Accepting a non-zero exit
+			// because some stdout arrived would mean computing metrics from a
+			// partial scan — a wrong number that looks like a real one, which is
+			// worse than a failed build.
+			if (code !== 0) {
+				reject(
+					new Error(
+						`ast-grep exited ${code}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+					),
+				);
 				return;
 			}
 			resolve(stdout);
@@ -122,7 +130,17 @@ export function createWorkspace(): Promise<string> {
 }
 
 /**
- * Scan `files` with `ruleFile` and return every match.
+ * What kind of file is being handed to ast-grep. These take DIFFERENT flags and
+ * are not interchangeable — passing a project config to `--rule` fails with
+ * "Cannot parse rule", which is why this is explicit rather than inferred.
+ *
+ *   "rule"    a single rule file (possibly multi-document)  -> --rule
+ *   "project" an sgconfig.yml with `ruleDirs:`              -> --config
+ */
+export type RuleSource = { kind: "rule" | "project"; path: string };
+
+/**
+ * Scan `files` with `source` and return every match.
  *
  * Passing an explicit file list rather than letting ast-grep walk the tree keeps
  * include/exclude semantics in exactly one place (sources.ts), so the LOC
@@ -131,17 +149,18 @@ export function createWorkspace(): Promise<string> {
  * There is no `--lang` flag: `ast-grep scan` takes the language from each rule's
  * `language:` field, which is what retargetRules above manipulates.
  */
-export async function scan(ruleFile: string, files: string[], cwd: string): Promise<Match[]> {
+export async function scan(source: RuleSource, files: string[], cwd: string): Promise<Match[]> {
 	if (files.length === 0) return [];
 
 	const bin = resolveTool("ast-grep", cwd);
+	const flag = source.kind === "project" ? "--config" : "--rule";
 	const matches: Match[] = [];
 
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
 		const batch = files.slice(i, i + BATCH_SIZE);
 		const stdout = await run(
 			bin,
-			["scan", "--rule", ruleFile, "--json", ...batch.map((f) => (cwd ? `${cwd}/${f}` : f))],
+			["scan", flag, source.path, "--json", ...batch.map((f) => (cwd ? `${cwd}/${f}` : f))],
 			cwd,
 		);
 
@@ -153,7 +172,7 @@ export async function scan(ruleFile: string, files: string[], cwd: string): Prom
 			parsed = JSON.parse(trimmed) as Match[];
 		} catch (err) {
 			throw new Error(
-				`ast-grep produced unparseable JSON for ${ruleFile}: ${(err as Error).message}`,
+				`ast-grep produced unparseable JSON for ${source.path}: ${(err as Error).message}`,
 			);
 		}
 		// Re-relativise so downstream keys are stable regardless of how the
