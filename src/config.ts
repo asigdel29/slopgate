@@ -43,9 +43,27 @@ export type LanguageConfig = {
 export type SlopConfig = {
 	languages: Partial<Record<Language, LanguageConfig>>;
 	/**
-	 * Ratchet ceilings. Lower is better, so these only ever move DOWN — the
-	 * inverse of the coverage gate's floor. `null` means "not yet calibrated":
-	 * the gate reports but does not fail, which is how a repo bootstraps.
+	 * How much a single change may move each metric — the primary gate.
+	 *
+	 * This is a RATE, which is what the paper actually measures and the only
+	 * thing that transfers across languages and codebase sizes. The gate compares
+	 * the merge base against the head, so it asks "how fast is this change
+	 * degrading the codebase", not "how good is the codebase".
+	 *
+	 * `null` disables the delta check for that metric.
+	 */
+	maxDelta: {
+		erosion: number | null;
+		verbosity: number | null;
+	};
+	/**
+	 * Optional absolute backstop. Lower is better, so these only ever move DOWN.
+	 * `null` — the default — means no absolute cap.
+	 *
+	 * An absolute ceiling on a whole-repo ratio is a ONE-TIME budget, not a
+	 * per-change allowance: once consumed, every later change fails regardless of
+	 * its own contribution. That is why it is not the primary mechanism. Use it
+	 * only as a catastrophic-drift backstop, set far above the current value.
 	 */
 	thresholds: {
 		erosion: number | null;
@@ -125,10 +143,15 @@ export const HUMAN_PANEL_REFERENCE = {
  * finding is the gap between the two rows — agents accumulate erosion ~5x and
  * verbosity ~7x faster than human commits do.
  *
- * The recommended way to set a ceiling is `measured + humanMedian`, which makes
- * the gate say exactly this: a change may degrade the codebase no faster than a
- * typical human commit in the 473-repo panel does. That is a threshold the paper
- * justifies, rather than an arbitrary tolerance.
+ * `humanMedian` is the recommended `maxDelta`, which makes the gate say exactly
+ * this: a change may degrade the codebase no faster than a typical human commit
+ * in the 473-repo panel does. That is a threshold the paper justifies, rather
+ * than an arbitrary tolerance.
+ *
+ * These belong on a DELTA, never added to an absolute ceiling. Adding a
+ * per-commit rate once to a whole-repo ratio yields a one-time budget that the
+ * first few changes exhaust permanently — it looks like a velocity limit and
+ * behaves like a quota.
  */
 export const DEGRADATION_VELOCITY = {
 	humanMedian: { erosion: 0.0053, verbosity: 0.0022 },

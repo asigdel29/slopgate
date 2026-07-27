@@ -6,10 +6,17 @@
     "not the code whose quality you are ratcheting, and including them lets a large",
     "well-factored test suite mask erosion in the source.",
     "",
-    "thresholds are ratchet CEILINGS — lower is better, so they only ever move DOWN.",
-    "Start at null (report only), run `slopgate --report`, then write the measured",
-    "values in. Do not copy the paper's human-panel numbers here: those describe",
-    "Python repositories and are context, not a target.",
+    "maxDelta is the PRIMARY gate: how much one change may move each metric. Run",
+    "with `--base <the PR's base ref>` and it compares the merge base against the",
+    "head. The defaults are the paper's median HUMAN per-commit velocity, so the",
+    "gate asks whether a change degrades the codebase faster than a person",
+    "typically would. Agent checkpoints in the paper move 5x and ~7x faster.",
+    "",
+    "thresholds is an OPTIONAL absolute backstop, normally null. An absolute cap on",
+    "a whole-repo ratio is a one-time budget, not a per-change allowance: the first",
+    "few changes exhaust it and every later change then fails regardless of its own",
+    "contribution. Use it only for catastrophic drift, set far above today's value.",
+    "Never put the paper's human-panel means here: those describe Python repos.",
     "",
     "calibratedAtRulePackVersion must match rules/VERSION. Adding slop rules can",
     "only push verbosity up, so a stale value means the ceiling is measuring",
@@ -25,6 +32,10 @@
       "include": ["Sources/**/*.swift"],
       "exclude": ["**/.build/**", "**/*Tests/**"]
     }
+  },
+  "maxDelta": {
+    "erosion": 0.0053,
+    "verbosity": 0.0022
   },
   "thresholds": {
     "erosion": null,

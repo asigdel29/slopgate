@@ -18,10 +18,15 @@ export function topOffenders(callables: Callable[], limit: number): Callable[] {
 		.slice(0, limit);
 }
 
+function signed(value: number): string {
+	return `${value >= 0 ? "+" : ""}${value.toFixed(4)}`;
+}
+
 export function formatReport(
 	metrics: SlopMetrics,
 	config: SlopConfig,
 	callables: Callable[],
+	base: SlopMetrics | null = null,
 ): string {
 	const { detail } = metrics;
 	const lines: string[] = [];
@@ -56,31 +61,45 @@ export function formatReport(
 	);
 	lines.push("  different language, so they are context here and never a pass/fail line.");
 
+	// The delta is the number the gate actually decides on, so it leads.
+	if (base !== null) {
+		lines.push("");
+		lines.push("  Change against the merge base:");
+		for (const name of ["erosion", "verbosity"] as const) {
+			const delta = metrics[name] - base[name];
+			const limit = config.maxDelta[name];
+			const verdict =
+				typeof limit !== "number"
+					? "not gated"
+					: delta > limit
+						? `OVER the ${limit} limit`
+						: `within the ${limit} limit`;
+			lines.push(
+				`    ${name.padEnd(10)} ${base[name].toFixed(4)} -> ${metrics[name].toFixed(4)}  ` +
+					`${signed(delta)}  (${verdict})`,
+			);
+		}
+		lines.push("");
+		lines.push(
+			`  The limits are the paper's median HUMAN per-commit velocity ` +
+				`(erosion +${DEGRADATION_VELOCITY.humanMedian.erosion}, verbosity ` +
+				`+${DEGRADATION_VELOCITY.humanMedian.verbosity}). An agent checkpoint moves them`,
+		);
+		lines.push(
+			`  +${DEGRADATION_VELOCITY.agentPerCheckpoint.erosion} and ` +
+				`+${DEGRADATION_VELOCITY.agentPerCheckpoint.verbosity} — 5x and ~7x faster. ` +
+				"So this gate asks whether the change degrades the",
+		);
+		lines.push("  codebase faster than a person typically would, not whether the codebase is good.");
+	}
+
 	const ceilings = config.thresholds;
 	if (typeof ceilings.erosion === "number" || typeof ceilings.verbosity === "number") {
 		lines.push("");
 		lines.push(
-			`  Ratchet ceilings: erosion ${ceilings.erosion ?? "uncalibrated"}, ` +
-				`verbosity ${ceilings.verbosity ?? "uncalibrated"}.`,
+			`  Absolute backstop: erosion ${ceilings.erosion ?? "none"}, ` +
+				`verbosity ${ceilings.verbosity ?? "none"}.`,
 		);
-		// Headroom against the paper's human-median velocity is the number that
-		// actually tells you whether the next commit has room, so show it.
-		if (typeof ceilings.erosion === "number") {
-			const headroom = ceilings.erosion - metrics.erosion;
-			lines.push(
-				`  Erosion headroom ${headroom >= 0 ? "+" : ""}${headroom.toFixed(4)} ` +
-					`(a median human commit moves it +${DEGRADATION_VELOCITY.humanMedian.erosion}, ` +
-					`an agent checkpoint +${DEGRADATION_VELOCITY.agentPerCheckpoint.erosion}).`,
-			);
-		}
-		if (typeof ceilings.verbosity === "number") {
-			const headroom = ceilings.verbosity - metrics.verbosity;
-			lines.push(
-				`  Verbosity headroom ${headroom >= 0 ? "+" : ""}${headroom.toFixed(4)} ` +
-					`(median human commit +${DEGRADATION_VELOCITY.humanMedian.verbosity}, ` +
-					`agent checkpoint +${DEGRADATION_VELOCITY.agentPerCheckpoint.verbosity}).`,
-			);
-		}
 	}
 
 	const offenders = topOffenders(callables, 10);
@@ -108,5 +127,27 @@ export function formatFailure(metric: "erosion" | "verbosity", value: number, ce
 		`this change concentrates complexity or adds redundant code. ` +
 		`The ceiling is a one-way ratchet and must not be raised; ` +
 		`reduce ${metric === "erosion" ? "branching in the largest functions" : "duplicated or flagged lines"} instead.`
+	);
+}
+
+/**
+ * The primary failure: this change degraded the codebase faster than a human
+ * commit typically does.
+ */
+export function formatDeltaFailure(
+	metric: "erosion" | "verbosity",
+	before: number,
+	after: number,
+	limit: number,
+): string {
+	const delta = after - before;
+	const humanRate = DEGRADATION_VELOCITY.humanMedian[metric];
+	return (
+		`::error::${metric} rose ${signed(delta)} (${before.toFixed(4)} -> ${after.toFixed(4)}), ` +
+		`past the ${limit} allowed for one change. That is ${(delta / humanRate).toFixed(1)}x ` +
+		`the median human commit in ${HUMAN_PANEL_REFERENCE.source}. ` +
+		(metric === "erosion"
+			? "Split the new branching into its own function instead of adding another arm to an existing one."
+			: "Factor out the duplicated lines.")
 	);
 }
