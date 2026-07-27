@@ -1,0 +1,34 @@
+{
+  "$comment": [
+    "Copy this to the root of the repository you want to gate, as slop.config.json.",
+    "",
+    "include/exclude are globs relative to that root. Exclude test files: they are",
+    "not the code whose quality you are ratcheting, and including them lets a large",
+    "well-factored test suite mask erosion in the source.",
+    "",
+    "thresholds are ratchet CEILINGS — lower is better, so they only ever move DOWN.",
+    "Start at null (report only), run `slopgate --report`, then write the measured",
+    "values in. Do not copy the paper's human-panel numbers here: those describe",
+    "Python repositories and are context, not a target.",
+    "",
+    "calibratedAtRulePackVersion must match rules/VERSION. Adding slop rules can",
+    "only push verbosity up, so a stale value means the ceiling is measuring",
+    "something different from what it was set against, and the gate refuses to",
+    "compare rather than reporting a meaningless regression."
+  ],
+  "languages": {
+    "typescript": {
+      "include": ["src/**/*.ts", "src/**/*.tsx"],
+      "exclude": ["**/node_modules/**", "**/*.test.ts", "**/*.test.tsx", "**/*.d.ts"]
+    },
+    "swift": {
+      "include": ["Sources/**/*.swift"],
+      "exclude": ["**/.build/**", "**/*Tests/**"]
+    }
+  },
+  "thresholds": {
+    "erosion": null,
+    "verbosity": null
+  },
+  "calibratedAtRulePackVersion": 0
+}

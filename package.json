@@ -1,0 +1,42 @@
+{
+  "name": "slopgate",
+  "version": "0.1.0",
+  "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript and Swift.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "slopgate": "./bin/slopgate.ts"
+  },
+  "files": [
+    "bin",
+    "src",
+    "structural",
+    "rules",
+    "examples"
+  ],
+  "keywords": [
+    "code-quality",
+    "cyclomatic-complexity",
+    "static-analysis",
+    "ci",
+    "ast-grep",
+    "technical-debt"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "check": "bun test && bun run typecheck",
+    "typecheck": "tsc --noEmit",
+    "self": "bun bin/slopgate.ts --report"
+  },
+  "dependencies": {
+    "@ast-grep/cli": "0.40.0",
+    "jscpd": "4.0.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  },
+  "trustedDependencies": [
+    "@ast-grep/cli"
+  ]
+}
