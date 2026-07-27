@@ -103,6 +103,27 @@ rule:
   kind: ternary_expression
 ---
 # `&&`, `||`, `??` — each its own kind in this grammar.
+#
+# KNOWN LIMITATION. Comma-separated conditions are NOT counted, so these two
+# semantically equivalent functions get different complexity:
+#
+#   if let x = a, let y = b { … }      CC 2   (comma not counted)
+#   if a != nil && b != nil { … }      CC 3   (&& counted)
+#
+# The comma is a short-circuit AND, so it should count — Radon counts Python's
+# `and`, and this pack counts Swift's `&&`. It is left uncounted because the
+# grammar tags both the `let` and its right-hand side as `condition:`, so there
+# is no node that corresponds one-to-one with a comma. Every declarative rule
+# tried either also matched the FIRST binding — over-counting plain
+# `if let x = a`, which is far more common than the multi-binding form, and so
+# strictly worse than the current under-count — or missed non-binding conditions
+# such as `if let x = a, z > 0`.
+#
+# Effect: optional-binding-heavy Swift reads slightly less complex than the
+# equivalent written with `&&`. Erosion is a ratio, so this shifts the level a
+# little; it does not bias the trend the ratchet actually gates on. Fixing it
+# properly needs per-statement arithmetic in the engine rather than a rule, and
+# that would re-baseline every Swift consumer's ceiling.
 id: dp-logical
 language: swift
 severity: hint

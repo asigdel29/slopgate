@@ -154,6 +154,22 @@ metric to the most likely place for erosion.
 `default:` / `else` are not decision points; they add no independent path.
 Optional chaining (`?.`) is not counted either.
 
+### Known limitation: Swift comma-separated conditions
+
+`if let x = a, let y = b` scores **CC 2**, while the equivalent
+`if a != nil && b != nil` scores **CC 3**. The comma is a short-circuit AND and
+should count, but the Swift grammar tags both the `let` and its right-hand side
+as `condition:`, so no node corresponds one-to-one with a comma. Every
+declarative rule tried either also matched the *first* binding — over-counting
+plain `if let x = a`, which is much more common, and so strictly worse — or
+missed non-binding conditions like `if let x = a, z > 0`.
+
+Optional-binding-heavy Swift therefore reads slightly less complex than the same
+logic written with `&&`. Erosion is a ratio, so this shifts the level a little
+and does not bias the trend the ratchet gates on. A proper fix needs
+per-statement arithmetic in the engine rather than a rule, and would re-baseline
+every Swift consumer's ceiling.
+
 ## Vendoring
 
 For CI without a network dependency:
