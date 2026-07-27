@@ -1,0 +1,12 @@
+# Ports `redundant-bool-ternary` from the SlopCodeBench rule pack.
+id: redundant-bool-ternary
+language: typescript
+severity: warning
+message: Ternary returning boolean literals — the condition already is the value
+metadata:
+  category: slop
+  upstream: redundant-bool-ternary
+rule:
+  any:
+    - pattern: "$C ? true : false"
+    - pattern: "$C ? false : true"

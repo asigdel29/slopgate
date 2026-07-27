@@ -1,0 +1,13 @@
+# Ports `ternary-same-value` from the SlopCodeBench rule pack.
+#
+# The pattern is quoted: an unquoted `a : b` is a YAML mapping, so every ternary
+# pattern in this pack must be a quoted scalar.
+id: ternary-same-value
+language: typescript
+severity: warning
+message: Both ternary branches produce the same value
+metadata:
+  category: slop
+  upstream: ternary-same-value
+rule:
+  pattern: "$C ? $A : $A"

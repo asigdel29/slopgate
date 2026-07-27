@@ -183,10 +183,19 @@ async function main(): Promise<number> {
 	console.log(formatReport(metrics, config, callables, baseMetrics));
 	if (options.reportOnly) return 0;
 
-	// Adding rules can only push verbosity up, so a ceiling calibrated against an
-	// older pack is not comparable to what was just measured. Refusing to compare
-	// is the only honest option: passing would be luck and failing would be a lie.
-	if (config.calibratedAtRulePackVersion !== metrics.detail.rulePackVersion) {
+	// Adding rules can only push verbosity up, so an ABSOLUTE ceiling calibrated
+	// against an older pack is not comparable to what was just measured, and
+	// refusing to compare is the only honest option.
+	//
+	// A delta is immune: both sides are measured with the same pack in the same
+	// run, so a pack change cancels out. The guard therefore applies only when an
+	// absolute threshold is actually in use — otherwise every rule batch would
+	// force a pointless re-calibration of numbers nothing reads.
+	const usesAbsoluteThreshold =
+		typeof config.thresholds.erosion === "number" ||
+		typeof config.thresholds.verbosity === "number";
+
+	if (usesAbsoluteThreshold && config.calibratedAtRulePackVersion !== metrics.detail.rulePackVersion) {
 		console.error("");
 		console.error(
 			`::error::rule pack is v${metrics.detail.rulePackVersion} but the ceilings in ` +

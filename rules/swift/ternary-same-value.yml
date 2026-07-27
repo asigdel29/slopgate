@@ -1,0 +1,10 @@
+# Ports `ternary-same-value` from the SlopCodeBench rule pack.
+id: ternary-same-value
+language: swift
+severity: warning
+message: Both ternary branches produce the same value
+metadata:
+  category: slop
+  upstream: ternary-same-value
+rule:
+  pattern: "$C ? $A : $A"

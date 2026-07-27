@@ -1,0 +1,14 @@
+# Ports `bool-comparison` from the SlopCodeBench rule pack.
+id: redundant-bool-comparison
+language: typescript
+severity: warning
+message: Comparing to a boolean literal — use the value (or its negation) directly
+metadata:
+  category: slop
+  upstream: bool-comparison
+rule:
+  any:
+    - pattern: $X === true
+    - pattern: $X === false
+    - pattern: $X !== true
+    - pattern: $X !== false
