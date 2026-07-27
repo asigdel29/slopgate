@@ -12,7 +12,7 @@
 #   meta-comment a comment span, subtracted when counting source lines
 #
 # Node kinds were read off `ast-grep run -p '<snippet>' --lang ts --debug-query=ast`
-# rather than guessed; see docs/slop-metrics.md.
+# rather than guessed.
 
 # --- callables ---------------------------------------------------------------
 #

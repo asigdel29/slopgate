@@ -29,11 +29,14 @@ cd "$root"
 # and installed into scripts/slop/node_modules — deliberately isolated from this
 # repository's own dependency tree. Installing on demand keeps a fresh clone and
 # a fresh CI runner working with no separate setup step.
-if [ ! -x scripts/slop/node_modules/.bin/jscpd ] ||
-	[ ! -x scripts/slop/node_modules/.bin/ast-grep ]; then
-	echo "slop-gate: installing pinned analysers into scripts/slop/node_modules..." >&2
-	(cd scripts/slop && bun install --frozen-lockfile)
-fi
+# Run unconditionally. Testing only whether the binaries EXIST would mean a
+# version bump in scripts/slop/package.json never triggers a reinstall: the old
+# binary is still there and still executable, so local runs would keep measuring
+# with the stale analyser while CI (fresh checkout) used the new one — and the
+# resulting shift in the number would be reported as a code-quality regression
+# on whichever PR happened to be open. `--frozen-lockfile` is a fast no-op when
+# the tree already matches the lockfile.
+(cd scripts/slop && bun install --frozen-lockfile >/dev/null)
 
 exec bun scripts/slop/bin/slopgate.ts \
 	--root "$root" \

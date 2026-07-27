@@ -21,6 +21,20 @@ function isWhitespaceByte(b: number): boolean {
 	return b === SPACE || b === TAB || b === CR || b === LF;
 }
 
+
+/**
+ * Whether `buf` decodes as UTF-8. The fatal TextDecoder throws on malformed
+ * input, which is the cheapest reliable check available.
+ */
+function isValidUtf8(buf: Buffer): boolean {
+	try {
+		new TextDecoder("utf-8", { fatal: true }).decode(buf);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Resolve a language's include/exclude globs to a sorted, de-duplicated list of
  * repo-relative paths. Sorting makes the whole run deterministic, so two runs on
@@ -100,12 +114,28 @@ export async function measureFiles(
 		commentsByFile.set(m.file, spans);
 	}
 
-	const measurements: FileMeasurement[] = [];
-	for (const file of files) {
-		const contents = Buffer.from(await Bun.file(`${root}/${file}`).arrayBuffer());
-		const sourceLines = classifyLines(contents, commentsByFile.get(file) ?? []);
-		measurements.push({ file, language, loc: sourceLines.size, sourceLines });
-	}
+	// Reads are independent, so they run concurrently. Sequentially awaiting a
+	// few hundred files is the dominant cost of a job whose whole point is to be
+	// cheap enough for every PR.
+	return Promise.all(
+		files.map(async (file) => {
+			const contents = Buffer.from(await Bun.file(`${root}/${file}`).arrayBuffer());
 
-	return measurements;
+			// ast-grep silently returns zero matches for a file it cannot decode —
+			// exit 0, empty stderr — which would let that file add its lines to the
+			// LOC denominator while contributing no callables, quietly deflating
+			// erosion. Nothing downstream can distinguish that from a file that
+			// genuinely has no callables, so it has to be caught here.
+			if (!isValidUtf8(contents)) {
+				throw new Error(
+					`${file} is not valid UTF-8. The parser cannot read it, so it would ` +
+						"be counted as source lines with no complexity. Fix the encoding or " +
+						"exclude the file.",
+				);
+			}
+
+			const sourceLines = classifyLines(contents, commentsByFile.get(file) ?? []);
+			return { file, language, loc: sourceLines.size, sourceLines };
+		}),
+	);
 }

@@ -68,9 +68,17 @@ which implements the code-degradation metrics from
 | Upstream revision | \`$revision\` |
 | Upstream version  | \`$version\` |
 
-Edit it upstream and re-vendor with \`scripts/vendor.sh\`, so the two copies in
-this org do not drift. The engine's tests live upstream and run in its CI; what
-runs here is the gate itself.
+**Do not edit these files.** Change them upstream, then re-vendor by cloning
+slopgate and running its \`scripts/vendor.sh\` against this repository:
+
+\`\`\`sh
+git clone https://github.com/asigdel29/slopgate
+cd slopgate && git checkout $revision
+./scripts/vendor.sh /path/to/this/repo
+\`\`\`
+
+That script lives in the slopgate repository, not here. The engine's tests live
+upstream and run in its CI; what runs here is the gate itself.
 
 Repository-specific settings are **not** in this directory — they live in
 \`scripts/slop.config.json\`, which re-vendoring deliberately leaves alone.

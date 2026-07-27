@@ -56,7 +56,7 @@ export type SlopConfig = {
 	 * Adding slop rules can only raise verbosity, so a mismatch against
 	 * rules/VERSION means the ceiling is not comparable to what is now being
 	 * measured, and the gate refuses to compare rather than reporting a
-	 * meaningless regression. See docs/slop-metrics.md.
+	 * meaningless regression. See the slopgate README.
 	 */
 	calibratedAtRulePackVersion: number;
 };
