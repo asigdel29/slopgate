@@ -1,0 +1,125 @@
+# Structural ast-grep rules for TypeScript — the input to the erosion half of the
+# slop gate (arXiv 2603.24755, Eq. 2-3) and to the LOC denominator of Eq. 4.
+#
+# These are NOT slop rules: nothing here flags a problem. They exist so a single
+# `ast-grep scan` pass yields everything the engine needs — where the callables
+# are, where the decision points are, and where the comments are. Rule ids carry
+# the meaning and are parsed by engine/callables.ts:
+#
+#   callable-*   a callable whose complexity mass we measure
+#   dp-*         a McCabe decision point (CC = 1 + count, attributed to the
+#                innermost enclosing callable)
+#   meta-comment a comment span, subtracted when counting source lines
+#
+# Node kinds were read off `ast-grep run -p '<snippet>' --lang ts --debug-query=ast`
+# rather than guessed; see docs/slop-metrics.md.
+
+# --- callables ---------------------------------------------------------------
+#
+# Only NAMED callables count. An inline closure passed as an argument
+# (`xs.map(x => …)`) is deliberately not matched: its decision points fold into
+# the enclosing named callable instead of registering as a separate near-zero-CC
+# entry. Radon treats Python lambdas the same way, so this follows the paper
+# rather than departing from it. See engine/callables.ts.
+id: callable-function-declaration
+language: typescript
+severity: hint
+message: callable
+rule:
+  kind: function_declaration
+---
+# Covers methods, getters, setters and `constructor` — all one kind in the
+# TypeScript grammar.
+id: callable-method-definition
+language: typescript
+severity: hint
+message: callable
+rule:
+  kind: method_definition
+---
+# `const f = () => {}` / `const f = function () {}`. Bound to a name, so it is a
+# callable in its own right; the `inside` guard is what distinguishes it from an
+# inline callback.
+id: callable-named-function-expression
+language: typescript
+severity: hint
+message: callable
+rule:
+  any:
+    - kind: arrow_function
+    - kind: function_expression
+  inside:
+    kind: variable_declarator
+    field: value
+---
+# --- decision points ---------------------------------------------------------
+#
+# `else if` nests a fresh if_statement inside the else_clause, so it is counted
+# once by this rule — matching how Radon counts Python's `elif`.
+id: dp-if
+language: typescript
+severity: hint
+message: decision point
+rule:
+  kind: if_statement
+---
+id: dp-loop
+language: typescript
+severity: hint
+message: decision point
+rule:
+  any:
+    - kind: for_statement
+    - kind: for_in_statement
+    - kind: while_statement
+    - kind: do_statement
+---
+# `case` only. `default` is the fall-through arm, not a branch, so it adds no
+# independent path and is excluded.
+id: dp-case
+language: typescript
+severity: hint
+message: decision point
+rule:
+  kind: switch_case
+---
+id: dp-catch
+language: typescript
+severity: hint
+message: decision point
+rule:
+  kind: catch_clause
+---
+id: dp-ternary
+language: typescript
+severity: hint
+message: decision point
+rule:
+  kind: ternary_expression
+---
+# `&&`, `||` and `??` each add a short-circuit path, mirroring Radon counting
+# Python's `and`/`or`. All three share the binary_expression kind in this
+# grammar, so they are separated on the operator field.
+#
+# Optional chaining (`?.`) is NOT counted — Radon does not count the equivalent,
+# and counting it would inflate every nullable-heavy file uniformly.
+id: dp-logical
+language: typescript
+severity: hint
+message: decision point
+rule:
+  kind: binary_expression
+  has:
+    field: operator
+    regex: '^(&&|\|\||\?\?)$'
+---
+# --- comments ----------------------------------------------------------------
+#
+# Both `//` and `/* */` are this one kind. Used to exclude comment-only lines
+# from SLOC and LOC, matching Radon's `sloc`.
+id: meta-comment
+language: typescript
+severity: hint
+message: comment
+rule:
+  kind: comment

@@ -1,0 +1,11 @@
+{
+  "$comment": "slopgate measuring itself — see the `self` CI job. Ceilings stay null: this repo is small enough that a single new branch swings the ratio hard, so the number is reported for dogfooding rather than gated on.",
+  "languages": {
+    "typescript": {
+      "include": ["src/**/*.ts", "bin/**/*.ts"],
+      "exclude": ["**/node_modules/**"]
+    }
+  },
+  "thresholds": { "erosion": null, "verbosity": null },
+  "calibratedAtRulePackVersion": 0
+}

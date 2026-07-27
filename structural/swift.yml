@@ -1,0 +1,135 @@
+# Structural ast-grep rules for Swift — the Swift counterpart to
+# structural/typescript.yml. Same rule-id contract, same purpose: one scan pass
+# yields callables, decision points and comment spans for the erosion half of
+# the slop gate (arXiv 2603.24755, Eq. 2-3).
+#
+# Swift's grammar separates the logical operators into their own kinds, so the
+# operator-field trick the TypeScript pack needs is unnecessary here.
+#
+# Node kinds were read off `ast-grep run -p '<snippet>' --lang swift --debug-query=ast`.
+
+# --- callables ---------------------------------------------------------------
+#
+# The function_body guard drops protocol requirements and other bodiless
+# declarations: they have no complexity and no SLOC, and upstream's mass.py
+# skips any symbol with sloc <= 0 for the same reason.
+id: callable-function-declaration
+language: swift
+severity: hint
+message: callable
+rule:
+  kind: function_declaration
+  has:
+    kind: function_body
+---
+id: callable-init
+language: swift
+severity: hint
+message: callable
+rule:
+  kind: init_declaration
+---
+id: callable-deinit
+language: swift
+severity: hint
+message: callable
+rule:
+  kind: deinit_declaration
+---
+# Computed properties, which is how SwiftUI's `var body: some View { … }` parses.
+# Counting `body` as a callable is deliberate — it is where SwiftUI view
+# complexity actually accumulates, so excluding it would blind the metric to the
+# most likely place for erosion in this codebase.
+id: callable-computed-property
+language: swift
+severity: hint
+message: callable
+rule:
+  kind: computed_property
+---
+# --- decision points ---------------------------------------------------------
+#
+# `else if` nests a fresh if_statement, so it is counted once here — matching
+# Radon's treatment of `elif`.
+id: dp-if
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: if_statement
+---
+# `guard` is Swift's early-return branch and has no TypeScript equivalent.
+id: dp-guard
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: guard_statement
+---
+id: dp-loop
+language: swift
+severity: hint
+message: decision point
+rule:
+  any:
+    - kind: for_statement
+    - kind: while_statement
+    - kind: repeat_while_statement
+---
+# `case` arms only. The `default:` arm is also a switch_entry, so it is excluded
+# by requiring a switch_pattern child — `default` has none. Mirrors the
+# TypeScript pack excluding switch_default.
+id: dp-case
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: switch_entry
+  has:
+    kind: switch_pattern
+---
+id: dp-catch
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: catch_block
+---
+id: dp-ternary
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: ternary_expression
+---
+# `&&`, `||`, `??` — each its own kind in this grammar.
+id: dp-logical
+language: swift
+severity: hint
+message: decision point
+rule:
+  any:
+    - kind: conjunction_expression
+    - kind: disjunction_expression
+    - kind: nil_coalescing_expression
+---
+# `for x in xs where p` — the where clause is a filter branch inside the loop, an
+# independent path on top of the loop itself.
+id: dp-where
+language: swift
+severity: hint
+message: decision point
+rule:
+  kind: where_clause
+---
+# --- comments ----------------------------------------------------------------
+#
+# Swift splits line and block comments across two kinds, unlike TypeScript.
+id: meta-comment
+language: swift
+severity: hint
+message: comment
+rule:
+  any:
+    - kind: comment
+    - kind: multiline_comment

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # The integration tests shell out to the real ast-grep and jscpd against
+      # the fixtures, so this also proves the pinned analysers work on Linux —
+      # the platform CI actually runs on, which is not where they are authored.
+      - run: bun test
+      - run: bun run typecheck
+
+  self:
+    name: Measure itself
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Dogfooding: a tool that gates other repositories on erosion should be
+      # able to report its own number without falling over.
+      - run: bun bin/slopgate.ts --report

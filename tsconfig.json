@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+
+    "types": ["bun"]
+  },
+  "include": ["bin", "src", "test"],
+
+  // Fixtures are INPUT to the analysers, not code this project compiles. They
+  // contain deliberate JSX and deliberate awkwardness, and typechecking them
+  // would mean configuring a JSX runtime for files that only ever get parsed.
+  "exclude": ["test/fixtures"]
+}

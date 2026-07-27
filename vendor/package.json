@@ -1,0 +1,13 @@
+{
+  "name": "slop-vendored",
+  "private": true,
+  "description": "Pins the two analysers the vendored slopgate engine shells out to. Deliberately separate from the host repository's dependency tree: these are CI tooling, not application dependencies, and keeping them here stops them showing up in the host's lockfile, unused-dependency scans and typechecks.",
+  "type": "module",
+  "dependencies": {
+    "@ast-grep/cli": "0.40.0",
+    "jscpd": "4.0.5"
+  },
+  "trustedDependencies": [
+    "@ast-grep/cli"
+  ]
+}
