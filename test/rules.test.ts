@@ -18,6 +18,7 @@ const FIXTURES = join(import.meta.dir, "fixtures");
 function configFor(language: "typescript" | "swift", include: string[]): SlopConfig {
 	return {
 		languages: { [language]: { include, exclude: [] } },
+		maxDelta: { erosion: null, verbosity: null },
 		thresholds: { erosion: null, verbosity: null },
 		calibratedAtRulePackVersion: 0,
 	};

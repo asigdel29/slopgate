@@ -21,11 +21,13 @@ async function configFile(contents: unknown): Promise<string> {
 }
 
 const validLanguages = { typescript: { include: ["src/**/*.ts"] } };
+const noDelta = { erosion: null, verbosity: null };
 
 describe("loadConfig", () => {
 	test("accepts a well-formed config", async () => {
 		const path = await configFile({
 			languages: validLanguages,
+			maxDelta: noDelta,
 			thresholds: { erosion: 0.5, verbosity: 0.1 },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -36,6 +38,7 @@ describe("loadConfig", () => {
 	test("accepts null as an explicit 'not yet calibrated'", async () => {
 		const path = await configFile({
 			languages: validLanguages,
+			maxDelta: noDelta,
 			thresholds: { erosion: null, verbosity: null },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -45,6 +48,7 @@ describe("loadConfig", () => {
 	test("rejects a MISSING threshold rather than silently disabling the gate", async () => {
 		const path = await configFile({
 			languages: validLanguages,
+			maxDelta: noDelta,
 			thresholds: { verbosity: 0.1 },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -54,6 +58,7 @@ describe("loadConfig", () => {
 	test("names the likely cause when a key is missing", async () => {
 		const path = await configFile({
 			languages: validLanguages,
+			maxDelta: noDelta,
 			thresholds: { erosionn: 0.5, verbosity: 0.1 },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -63,6 +68,7 @@ describe("loadConfig", () => {
 	test("rejects a non-numeric threshold", async () => {
 		const path = await configFile({
 			languages: validLanguages,
+			maxDelta: noDelta,
 			thresholds: { erosion: "0.5", verbosity: 0.1 },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -70,13 +76,14 @@ describe("loadConfig", () => {
 	});
 
 	test("rejects an entirely missing thresholds object", async () => {
-		const path = await configFile({ languages: validLanguages, calibratedAtRulePackVersion: 0 });
+		const path = await configFile({ languages: validLanguages, maxDelta: noDelta, calibratedAtRulePackVersion: 0 });
 		await expect(loadConfig(path)).rejects.toThrow(/`thresholds` must be an object/);
 	});
 
 	test("rejects an unknown language rather than measuring nothing", async () => {
 		const path = await configFile({
 			languages: { rust: { include: ["src/**/*.rs"] } },
+			maxDelta: noDelta,
 			thresholds: { erosion: null, verbosity: null },
 			calibratedAtRulePackVersion: 0,
 		});
@@ -86,6 +93,7 @@ describe("loadConfig", () => {
 	test("rejects an empty include list", async () => {
 		const path = await configFile({
 			languages: { typescript: { include: [] } },
+			maxDelta: noDelta,
 			thresholds: { erosion: null, verbosity: null },
 			calibratedAtRulePackVersion: 0,
 		});

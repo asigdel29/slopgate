@@ -12,6 +12,9 @@
 import { spawn } from "node:child_process";
 import { describeMissing, type ToolName } from "./bin.ts";
 
+/** Tools spawned by the engine. `git` is ambient; the analysers are pinned. */
+export type SpawnTool = ToolName | "git";
+
 export type RunResult = { stdout: string; stderr: string };
 
 /**
@@ -26,7 +29,7 @@ export type RunResult = { stdout: string; stderr: string };
  * than a failed build.
  */
 export function runTool(
-	tool: ToolName,
+	tool: SpawnTool,
 	bin: string,
 	args: string[],
 	options: { cwd: string; root: string },
@@ -61,6 +64,10 @@ export function runTool(
 							"the OS allows in a single command line.",
 					),
 				);
+				return;
+			}
+			if (tool === "git") {
+				reject(new Error(`could not run git: ${err.message}`));
 				return;
 			}
 			reject(new Error(`${describeMissing(tool, options.root)}\n(${err.message})`));
