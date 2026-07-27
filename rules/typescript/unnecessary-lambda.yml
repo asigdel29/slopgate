@@ -1,0 +1,10 @@
+# Ports `unnecessary-lambda` from the SlopCodeBench rule pack.
+id: unnecessary-lambda
+language: typescript
+severity: warning
+message: Arrow function that only forwards its argument — pass the function itself
+metadata:
+  category: slop
+  upstream: unnecessary-lambda
+rule:
+  pattern: ($X) => $F($X)

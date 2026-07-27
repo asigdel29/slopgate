@@ -1,0 +1,14 @@
+# Ports `manual-min-max` from the SlopCodeBench rule pack.
+id: manual-min-max
+language: swift
+severity: warning
+message: Hand-rolled min/max — use max(_:_:) / min(_:_:)
+metadata:
+  category: slop
+  upstream: manual-min-max
+rule:
+  any:
+    - pattern: "$A > $B ? $A : $B"
+    - pattern: "$A < $B ? $A : $B"
+    - pattern: "$A >= $B ? $A : $B"
+    - pattern: "$A <= $B ? $A : $B"

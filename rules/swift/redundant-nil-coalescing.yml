@@ -1,0 +1,13 @@
+# Ports `verbose-none-default` from the SlopCodeBench rule pack.
+#
+# `x ?? nil` is the identity: the fallback is the value the operator already
+# produces when the left side is nil.
+id: redundant-nil-coalescing
+language: swift
+severity: warning
+message: Coalescing to nil does nothing — drop the `?? nil`
+metadata:
+  category: slop
+  upstream: verbose-none-default
+rule:
+  pattern: $X ?? nil

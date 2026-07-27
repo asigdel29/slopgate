@@ -1,0 +1,12 @@
+# Ports `verbose-string-concat-str` from the SlopCodeBench rule pack.
+id: redundant-string-concat
+language: typescript
+severity: warning
+message: Concatenating an empty string to coerce — use String() or a template
+metadata:
+  category: slop
+  upstream: verbose-string-concat-str
+rule:
+  any:
+    - pattern: "\"\" + $X"
+    - pattern: "$X + \"\""

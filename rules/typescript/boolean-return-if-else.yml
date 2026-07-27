@@ -1,0 +1,12 @@
+# Ports `boolean-return-if-else` from the SlopCodeBench rule pack.
+id: boolean-return-if-else
+language: typescript
+severity: warning
+message: if/else returning boolean literals — return the condition
+metadata:
+  category: slop
+  upstream: boolean-return-if-else
+rule:
+  any:
+    - pattern: "if ($C) { return true; } else { return false; }"
+    - pattern: "if ($C) { return false; } else { return true; }"
