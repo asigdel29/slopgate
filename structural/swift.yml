@@ -112,27 +112,6 @@ rule:
   kind: ternary_expression
 ---
 # `&&`, `||`, `??` — each its own kind in this grammar.
-#
-# KNOWN LIMITATION. Comma-separated conditions are NOT counted, so these two
-# semantically equivalent functions get different complexity:
-#
-#   if let x = a, let y = b { … }      CC 2   (comma not counted)
-#   if a != nil && b != nil { … }      CC 3   (&& counted)
-#
-# The comma is a short-circuit AND, so it should count — Radon counts Python's
-# `and`, and this pack counts Swift's `&&`. It is left uncounted because the
-# grammar tags both the `let` and its right-hand side as `condition:`, so there
-# is no node that corresponds one-to-one with a comma. Every declarative rule
-# tried either also matched the FIRST binding — over-counting plain
-# `if let x = a`, which is far more common than the multi-binding form, and so
-# strictly worse than the current under-count — or missed non-binding conditions
-# such as `if let x = a, z > 0`.
-#
-# Effect: optional-binding-heavy Swift reads slightly less complex than the
-# equivalent written with `&&`. Erosion is a ratio, so this shifts the level a
-# little; it does not bias the trend the ratchet actually gates on. Fixing it
-# properly needs per-statement arithmetic in the engine rather than a rule, and
-# that would re-baseline every Swift consumer's ceiling.
 id: dp-logical
 language: swift
 severity: hint
@@ -142,6 +121,35 @@ rule:
     - kind: conjunction_expression
     - kind: disjunction_expression
     - kind: nil_coalescing_expression
+---
+# Optional bindings in a multi-clause condition.
+#
+# `if let x = a, let y = b` is two short-circuit tests, exactly like
+# `if a != nil && b != nil` — the comma IS an AND. Counting only the `if` would
+# score the binding form CC 2 and the `&&` form CC 3 for identical logic, so
+# optional-binding-heavy Swift (i.e. most Swift) would read as simpler than it is.
+#
+# This rule emits ONE match per binding. The engine attributes each to its
+# innermost enclosing if/guard and adds (count - 1), so a single binding adds
+# nothing and each additional one adds a decision point. See
+# callables.ts:extraConditionComplexity.
+#
+# Not counted: a mixed clause list such as `if let x = a, z > 0`, where the
+# second clause is an expression rather than a binding. Matching those needs the
+# `condition` field, which this ast-grep version reports inconsistently (it does
+# not compose with `any:`, and miscounts on its own). The result is that mixed
+# lists stay under-counted by one — unchanged from before this rule existed,
+# never worse.
+id: meta-condition-binding
+language: swift
+severity: hint
+message: optional binding in a condition list
+rule:
+  kind: value_binding_pattern
+  inside:
+    any:
+      - kind: if_statement
+      - kind: guard_statement
 ---
 # `for x in xs where p` — the where clause is a filter branch inside the loop, an
 # independent path on top of the loop itself.
