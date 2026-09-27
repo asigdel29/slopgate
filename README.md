@@ -102,6 +102,38 @@ Code degradation metrics — SlopCodeBench (arXiv:2603.24755)
 The report ends with the callables holding the most complexity mass — where to
 look when erosion is what failed.
 
+In CI, gate and keep the numbers from the same scan:
+
+```sh
+slopgate --base origin/main --json-out slop.json   # gates, and writes the JSON too
+```
+
+`--json` alone always exits 0, so a job that needs both the verdict and the
+numbers would otherwise have to measure twice.
+
+### The hot-callable ratchet
+
+Erosion is a ratio over the whole repository, so a change can add branches to a
+function already far over CC 10 and still move the ratio by less than
+`maxDelta`: one function is a small share of a large denominator. A string of
+changes like that consumes an absolute backstop without any single one failing.
+
+Set `"hotCallables": true` and run with `--base`, and every callable over CC 10
+on the head is compared with the same callable on the base. It fails the run
+when it is new, or when its complexity went up. A callable that stayed level or
+shrank passes, however large it is, so existing debt does not block unrelated
+work; it only stops growing.
+
+Callables are matched by file and the name the parser gives them. Same-named
+callables in one file (overloads, or several objects' `execute` methods) are
+compared by rank, most complex against most complex, so adding a simple sibling
+never shifts the comparison. A function
+moved between files keeps its history when its name is unique; a renamed one
+reads as new. To exempt one
+deliberately, put a comment containing `slopgate-allow: <reason>` on the line
+directly above it, where review will see it. The JSON output lists offenders
+under `hot`.
+
 ## Choosing a ceiling
 
 `thresholds` are **ceilings**, and they are a one-way ratchet: lower is better,
