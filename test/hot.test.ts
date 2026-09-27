@@ -11,7 +11,13 @@ import type { KeyedCallable } from "../src/hot.ts";
 import { callableName, findHotCallables, formatHotCallables, keyCallables } from "../src/hot.ts";
 
 /** A keyed callable with only the fields the matcher reads set meaningfully. */
-function keyed(name: string, complexity: number, file = "a.ts", waived = false): KeyedCallable {
+function keyed(
+	name: string | null,
+	complexity: number,
+	file = "a.ts",
+	waived = false,
+	signature = `function ${name}() {`,
+): KeyedCallable {
 	return {
 		file,
 		language: "typescript",
@@ -21,6 +27,7 @@ function keyed(name: string, complexity: number, file = "a.ts", waived = false):
 		endLine: 20,
 		complexity,
 		sloc: 10,
+		signature,
 		name,
 		waived,
 	};
@@ -36,8 +43,10 @@ describe("callableName", () => {
 		expect(callableName("    func render(into view: View) -> Bool {")).toBe("render");
 	});
 
-	test("falls back to the trimmed line when no name can be read", () => {
-		expect(callableName("   {   ")).toBe("{");
+	test("is null when the line names nothing", () => {
+		expect(callableName("   {   ")).toBeNull();
+		expect(callableName("export default function (a) {")).toBeNull();
+		expect(callableName("  async () => {")).toBeNull();
 	});
 });
 
@@ -70,6 +79,32 @@ describe("findHotCallables", () => {
 	test("prefers the same file over a namesake elsewhere", () => {
 		const base = [keyed("f", 12, "a.ts"), keyed("f", 50, "b.ts")];
 		expect(findHotCallables([keyed("f", 13, "a.ts")], base)).toHaveLength(1);
+	});
+
+	test("never matches an ambiguous name", () => {
+		const base = [
+			keyed("handle", 30, "a.ts", false, "async handle(req: A) {"),
+			keyed("handle", 12, "a.ts", false, "async handle(req: B) {"),
+		];
+		const head = [keyed("handle", 20, "a.ts", false, "async handle(req: C) {")];
+		expect(findHotCallables(head, base)).toEqual([
+			{ file: "a.ts", line: 10, name: "handle", complexity: 20, baseComplexity: null },
+		]);
+	});
+
+	test("matches an unchanged first line even when the name repeats", () => {
+		const base = [
+			keyed("handle", 30, "a.ts", false, "async handle(req: A) {"),
+			keyed("handle", 12, "a.ts", false, "async handle(req: B) {"),
+		];
+		const head = [keyed("handle", 12, "a.ts", false, "async handle(req: B) {")];
+		expect(findHotCallables(head, base)).toEqual([]);
+	});
+
+	test("treats an unnamed callable as new unless its first line matches", () => {
+		const head = [keyed(null, 15, "a.ts", false, "async () => {")];
+		expect(findHotCallables(head, [keyed(null, 15, "b.ts", false, "async () => {")])).toHaveLength(1);
+		expect(findHotCallables(head, [keyed(null, 15, "a.ts", false, "async () => {")])).toEqual([]);
 	});
 
 	test("skips a waived callable", () => {
