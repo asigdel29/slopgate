@@ -77,6 +77,12 @@ export type SlopConfig = {
 	 * meaningless regression. See the slopgate README.
 	 */
 	calibratedAtRulePackVersion: number;
+	/**
+	 * Gate each callable over the complexity cutoff: with `--base`, one that is new
+	 * or has gained decision points fails the run (see hot.ts). Absent means off,
+	 * so a config written before this rule keeps its behaviour.
+	 */
+	hotCallables?: boolean;
 };
 
 /** One callable with everything Eq. 2 needs. */
