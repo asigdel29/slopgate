@@ -5,19 +5,24 @@
 // (arXiv:2603.24755) so they can run as a CI check on any repository.
 //
 // Usage:
-//   slopgate [--root <dir>] [--config <path>] [--report] [--json]
+//   slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json]
+//            [--json-out <path>]
 //
-//   --root <dir>      repository to measure (default: current directory)
-//   --config <path>   config file (default: <root>/slop.config.json)
-//   --report          measure and print, always exit 0 — use this to calibrate
-//   --json            machine-readable output, always exit 0
+//   --root <dir>        repository to measure (default: current directory)
+//   --config <path>     config file (default: <root>/slop.config.json)
+//   --base <ref>        also measure this revision and gate on the delta
+//   --report            measure and print, always exit 0 — use this to calibrate
+//   --json              machine-readable output, always exit 0
+//   --json-out <path>   also write the machine-readable output to <path>, and gate
 //
 // Exit codes: 0 pass, 1 a metric exceeded its ceiling or the config is stale.
 
 import { isAbsolute, join, resolve } from "node:path";
 import type { Language, SlopConfig } from "../src/config.ts";
-import { LANGUAGES } from "../src/config.ts";
+import { HIGH_COMPLEXITY_CUTOFF, LANGUAGES } from "../src/config.ts";
 import { checkoutWorktree, isGitRepository, resolveBase } from "../src/git.ts";
+import type { HotCallable, KeyedCallable } from "../src/hot.ts";
+import { findHotCallables, formatHotCallables, keyCallables } from "../src/hot.ts";
 import { measure } from "../src/measure.ts";
 import { formatDeltaFailure, formatFailure, formatReport } from "../src/report.ts";
 
@@ -27,9 +32,11 @@ type Options = {
 	baseRef: string | null;
 	reportOnly: boolean;
 	asJson: boolean;
+	/** Where to also write the JSON output while still gating, or null. */
+	jsonOut: string | null;
 };
 
-const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json]
+const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json] [--json-out <path>]
 
   --root <dir>      repository to measure (default: current directory)
   --config <path>   config file (default: <root>/slop.config.json)
@@ -37,6 +44,8 @@ const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--repor
                     the primary gate; pass the PR's base branch or SHA
   --report          measure and print, always exit 0 — use this to calibrate
   --json            machine-readable output, always exit 0
+  --json-out <path> also write the machine-readable output to <path>, and
+                    still gate — one scan for both the verdict and the numbers
   --help            this message`;
 
 export function parseArgs(argv: string[]): Options {
@@ -45,6 +54,7 @@ export function parseArgs(argv: string[]): Options {
 	let baseRef: string | null = null;
 	let reportOnly = false;
 	let asJson = false;
+	let jsonOut: string | null = null;
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
@@ -53,6 +63,7 @@ export function parseArgs(argv: string[]): Options {
 		else if (arg === "--root") root = resolve(argv[++i] ?? ".");
 		else if (arg === "--config") configPath = argv[++i] ?? null;
 		else if (arg === "--base") baseRef = argv[++i] ?? null;
+		else if (arg === "--json-out") jsonOut = argv[++i] ?? null;
 		else throw new Error(`unknown argument '${arg}'\n\n${USAGE}`);
 	}
 
@@ -66,6 +77,7 @@ export function parseArgs(argv: string[]): Options {
 			: join(root, "slop.config.json"),
 		reportOnly,
 		asJson,
+		jsonOut: jsonOut === null ? null : resolve(jsonOut),
 	};
 }
 
@@ -130,6 +142,10 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 		}
 	}
 
+	if (config?.hotCallables !== undefined && typeof config.hotCallables !== "boolean") {
+		problems.push("`hotCallables` must be true, false, or absent (off)");
+	}
+
 	if (typeof config?.calibratedAtRulePackVersion !== "number") {
 		problems.push("`calibratedAtRulePackVersion` must be a number");
 	}
@@ -159,6 +175,7 @@ async function main(): Promise<number> {
 	// changes exhaust permanently, whereas a delta limit applies equally to
 	// every change forever.
 	let baseMetrics: Awaited<ReturnType<typeof measure>>["metrics"] | null = null;
+	let baseKeyed: KeyedCallable[] | null = null;
 	if (options.baseRef !== null) {
 		if (!(await isGitRepository(options.root))) {
 			throw new Error(`--base was given but ${options.root} is not a git repository`);
@@ -169,14 +186,31 @@ async function main(): Promise<number> {
 			// The base tree is measured with THIS revision's engine and config, so a
 			// delta only ever reflects source changes — never a change to how the
 			// measurement itself works.
-			baseMetrics = (await measure(config, worktree.path)).metrics;
+			const base = await measure(config, worktree.path);
+			baseMetrics = base.metrics;
+			// Named while the base tree is still on disk; the worktree is gone after.
+			if (config.hotCallables === true) {
+				baseKeyed = await keyCallables(base.callables, worktree.path);
+			}
 		} finally {
 			await worktree.dispose();
 		}
 	}
 
+	// Only callables over the cutoff can break the ratchet, so only they are named.
+	let hot: HotCallable[] | null = null;
+	if (baseKeyed !== null) {
+		const headHot = await keyCallables(
+			callables.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF),
+			options.root,
+		);
+		hot = findHotCallables(headHot, baseKeyed);
+	}
+
+	const json = JSON.stringify({ ...metrics, base: baseMetrics, hot }, null, 2);
+	if (options.jsonOut !== null) await Bun.write(options.jsonOut, `${json}\n`);
 	if (options.asJson) {
-		console.log(JSON.stringify({ ...metrics, base: baseMetrics }, null, 2));
+		console.log(json);
 		return 0;
 	}
 
@@ -233,6 +267,21 @@ async function main(): Promise<number> {
 				"or set maxDelta to null to opt out deliberately.",
 		);
 		return 1;
+	}
+
+	// Per callable: nothing over the cutoff may be new or gain branches.
+	if (config.hotCallables === true && hot === null) {
+		console.error("");
+		console.error(
+			"::error::hotCallables is on but --base was not given, so there was nothing to " +
+				"compare the callables against. Pass the PR's base ref.",
+		);
+		return 1;
+	}
+	if (hot !== null && hot.length > 0) {
+		console.error("");
+		for (const line of formatHotCallables(hot)) console.error(line);
+		failed = true;
 	}
 
 	// The optional absolute backstop, for catastrophic drift only.
