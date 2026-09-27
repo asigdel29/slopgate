@@ -24,6 +24,8 @@ function callable(complexity: number, sloc: number, file = "a.ts"): Callable {
 		endLine: 0,
 		complexity,
 		sloc,
+		name: null,
+		waived: false,
 	};
 }
 

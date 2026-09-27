@@ -99,6 +99,10 @@ export type Callable = {
 	complexity: number;
 	/** Source lines (blank and comment-only lines excluded). */
 	sloc: number;
+	/** The callable's name as the parser read it, or null when it has none. */
+	name: string | null;
+	/** Whether a `slopgate-allow` comment ends on the line above it. */
+	waived: boolean;
 };
 
 export type FileMeasurement = {
@@ -167,3 +171,9 @@ export const DEGRADATION_VELOCITY = {
 
 /** Radon's high-complexity bound, and the cutoff in Eq. 3. Not configurable. */
 export const HIGH_COMPLEXITY_CUTOFF = 10;
+
+/**
+ * The comment marker that exempts the callable below it from the hot-callable
+ * ratchet (see hot.ts). A comment, so the exception is visible in review.
+ */
+export const WAIVER = "slopgate-allow";

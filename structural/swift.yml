@@ -56,6 +56,28 @@ message: callable
 rule:
   kind: computed_property
 ---
+# --- names -------------------------------------------------------------------
+#
+# A callable's name, looked up by its start byte (see typescript.yml). init and
+# deinit take theirs from the rule id; an operator function has none.
+id: meta-name-function
+language: swift
+severity: hint
+message: callable name
+rule:
+  kind: function_declaration
+  has: { field: name, pattern: $NAME }
+---
+id: meta-name-computed-property
+language: swift
+severity: hint
+message: callable name
+rule:
+  kind: computed_property
+  inside:
+    kind: property_declaration
+    has: { field: name, pattern: $NAME }
+---
 # --- decision points ---------------------------------------------------------
 #
 # `else if` nests a fresh if_statement, so it is counted once here — matching

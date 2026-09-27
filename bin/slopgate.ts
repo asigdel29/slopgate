@@ -19,12 +19,17 @@
 
 import { isAbsolute, join, resolve } from "node:path";
 import type { Language, SlopConfig } from "../src/config.ts";
-import { HIGH_COMPLEXITY_CUTOFF, LANGUAGES } from "../src/config.ts";
+import { LANGUAGES } from "../src/config.ts";
 import { checkoutWorktree, isGitRepository, resolveBase } from "../src/git.ts";
-import type { HotCallable, KeyedCallable } from "../src/hot.ts";
-import { findHotCallables, formatHotCallables, keyCallables } from "../src/hot.ts";
+import type { HotCallable } from "../src/hot.ts";
+import { findHotCallables } from "../src/hot.ts";
 import { measure } from "../src/measure.ts";
-import { formatDeltaFailure, formatFailure, formatReport } from "../src/report.ts";
+import {
+	formatDeltaFailure,
+	formatFailure,
+	formatHotCallables,
+	formatReport,
+} from "../src/report.ts";
 
 type Options = {
 	root: string;
@@ -175,7 +180,7 @@ async function main(): Promise<number> {
 	// changes exhaust permanently, whereas a delta limit applies equally to
 	// every change forever.
 	let baseMetrics: Awaited<ReturnType<typeof measure>>["metrics"] | null = null;
-	let baseKeyed: KeyedCallable[] | null = null;
+	let hot: HotCallable[] | null = null;
 	if (options.baseRef !== null) {
 		if (!(await isGitRepository(options.root))) {
 			throw new Error(`--base was given but ${options.root} is not a git repository`);
@@ -188,23 +193,10 @@ async function main(): Promise<number> {
 			// measurement itself works.
 			const base = await measure(config, worktree.path);
 			baseMetrics = base.metrics;
-			// Named while the base tree is still on disk; the worktree is gone after.
-			if (config.hotCallables === true) {
-				baseKeyed = await keyCallables(base.callables, worktree.path);
-			}
+			if (config.hotCallables === true) hot = findHotCallables(callables, base.callables);
 		} finally {
 			await worktree.dispose();
 		}
-	}
-
-	// Only callables over the cutoff can break the ratchet, so only they are named.
-	let hot: HotCallable[] | null = null;
-	if (baseKeyed !== null) {
-		const headHot = await keyCallables(
-			callables.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF),
-			options.root,
-		);
-		hot = findHotCallables(headHot, baseKeyed);
 	}
 
 	const json = JSON.stringify({ ...metrics, base: baseMetrics, hot }, null, 2);
@@ -257,27 +249,22 @@ async function main(): Promise<number> {
 				failed = true;
 			}
 		}
-	} else if (names.some((n) => typeof config.maxDelta[n] === "number")) {
-		// Silently skipping the primary gate would make a PR look checked when it
-		// was not, which is the failure mode this tool exists to avoid.
+	} else if (
+		names.some((n) => typeof config.maxDelta[n] === "number") ||
+		config.hotCallables === true
+	) {
+		// Silently skipping the per-change gates would make a PR look checked when
+		// it was not, which is the failure mode this tool exists to avoid.
 		console.error("");
 		console.error(
-			"::error::maxDelta is configured but --base was not given, so the change " +
-				"itself was never measured. Pass the PR's base ref (e.g. --base origin/main), " +
-				"or set maxDelta to null to opt out deliberately.",
+			"::error::maxDelta or hotCallables is configured but --base was not given, so the " +
+				"change itself was never measured. Pass the PR's base ref (e.g. --base origin/main), " +
+				"or set maxDelta to null and hotCallables to false to opt out deliberately.",
 		);
 		return 1;
 	}
 
 	// Per callable: nothing over the cutoff may be new or gain branches.
-	if (config.hotCallables === true && hot === null) {
-		console.error("");
-		console.error(
-			"::error::hotCallables is on but --base was not given, so there was nothing to " +
-				"compare the callables against. Pass the PR's base ref.",
-		);
-		return 1;
-	}
 	if (hot !== null && hot.length > 0) {
 		console.error("");
 		for (const line of formatHotCallables(hot)) console.error(line);
