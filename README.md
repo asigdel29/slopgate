@@ -124,8 +124,10 @@ when it is new, or when its complexity went up. A callable that stayed level or
 shrank passes, however large it is, so existing debt does not block unrelated
 work; it only stops growing.
 
-Callables are matched by file and name, then by name alone, so a function moved
-between files keeps its history. A renamed one reads as new. To exempt one
+Callables are matched by file and the name the parser gives them, with
+same-named callables in one file (overloads) paired by their order. A function
+moved between files keeps its history when its name is unique; a renamed one
+reads as new. To exempt one
 deliberately, put a comment containing `slopgate-allow: <reason>` on the line
 directly above it, where review will see it. The JSON output lists offenders
 under `hot`.

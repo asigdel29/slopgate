@@ -13,6 +13,7 @@
 // behaviour.
 
 import type { Callable, FileMeasurement, Language } from "./config.ts";
+import { WAIVER } from "./config.ts";
 import type { Match } from "./scan.ts";
 
 type Span = {
@@ -93,6 +94,17 @@ export function isCallableRule(ruleId: string): boolean {
 	return ruleId.startsWith("callable-");
 }
 
+/** A `meta-name-*` match: the `$NAME` of the callable starting at the same byte. */
+export function isNameRule(ruleId: string): boolean {
+	return ruleId.startsWith("meta-name");
+}
+
+/** Callables whose name is their kind rather than an identifier in the source. */
+const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
+	["callable-init", "init"],
+	["callable-deinit", "deinit"],
+];
+
 export function isDecisionPointRule(ruleId: string): boolean {
 	return ruleId.startsWith("dp-");
 }
@@ -124,12 +136,27 @@ export function buildCallables(
 	// (n - 1) rather than one-per-match.
 	const clauseStatementsByFile = new Map<string, Span[]>();
 	const conditionBindingsByFile = new Map<string, Span[]>();
+	// A callable's name keyed by its start byte, and the last lines of waiver
+	// comments, both per file.
+	const namesByFile = new Map<string, Map<number, string>>();
+	const waiverEndLinesByFile = new Map<string, Set<number>>();
 
 	for (const m of matches) {
 		if (isCallableRule(m.ruleId)) {
 			const spans = callableSpansByFile.get(m.file) ?? [];
 			spans.push(toSpan(m));
 			callableSpansByFile.set(m.file, spans);
+			const intrinsic = INTRINSIC_NAMES.find(([prefix]) => m.ruleId.startsWith(prefix));
+			if (intrinsic) setName(namesByFile, m.file, m.range.byteOffset.start, intrinsic[1]);
+		} else if (isNameRule(m.ruleId)) {
+			const name = m.metaVariables?.single?.NAME?.text;
+			if (name) setName(namesByFile, m.file, m.range.byteOffset.start, name);
+		} else if (isCommentRule(m.ruleId)) {
+			if (m.text?.includes(WAIVER)) {
+				const lines = waiverEndLinesByFile.get(m.file) ?? new Set<number>();
+				lines.add(m.range.end.line);
+				waiverEndLinesByFile.set(m.file, lines);
+			}
 		} else if (isConditionBindingRule(m.ruleId)) {
 			const spans = conditionBindingsByFile.get(m.file) ?? [];
 			spans.push(toSpan(m));
@@ -187,6 +214,8 @@ export function buildCallables(
 			}
 		}
 
+		const names = namesByFile.get(file);
+		const waiverEndLines = waiverEndLinesByFile.get(file);
 		for (const span of bySizeAsc) {
 			callables.push({
 				file,
@@ -197,9 +226,22 @@ export function buildCallables(
 				endLine: span.endLine,
 				complexity: complexity.get(span) as number,
 				sloc: slocWithin(sourceLines, span.startLine, span.endLine),
+				name: names?.get(span.startByte) ?? null,
+				waived: waiverEndLines?.has(span.startLine - 1) ?? false,
 			});
 		}
 	}
 
 	return callables;
+}
+
+function setName(
+	namesByFile: Map<string, Map<number, string>>,
+	file: string,
+	startByte: number,
+	name: string,
+): void {
+	const names = namesByFile.get(file) ?? new Map<number, string>();
+	names.set(startByte, name);
+	namesByFile.set(file, names);
 }
