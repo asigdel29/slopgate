@@ -22,9 +22,9 @@ export type HotCallable = {
 	baseComplexity: number | null;
 };
 
-/** Callables grouped by file and name, each group in source order. */
+/** Callables grouped by file and name, each group most complex first. */
 function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
-	const sorted = [...callables].sort((a, b) => a.startByte - b.startByte);
+	const sorted = [...callables].sort((a, b) => b.complexity - a.complexity);
 	return Map.groupBy(sorted, (c) => `${c.file}\u0000${c.name ?? ""}`);
 }
 
@@ -32,12 +32,15 @@ function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
  * Callables over the cutoff on the head that are new or more complex than on
  * the base.
  *
- * A head callable is matched to the base callable with the same file and name,
- * pairing same-named callables in a file (overloads) by their order in it. When
- * the base file has none of that name, it is matched to the only base callable
- * with its name anywhere, which follows a function moved between files. Anything else is new,
- * including a renamed function; the `slopgate-allow` waiver covers the cases
- * that should pass anyway.
+ * A head callable is matched to the base callable with the same file and name.
+ * Same-named callables in one file (overloads, or `execute` handlers on several
+ * tool objects) are compared by rank, most complex against most complex, so
+ * adding or removing a simple sibling never shifts the pairing; a group fails
+ * only where its k-th most complex member got more complex. When the base file
+ * has none of that name, the head callable is matched to the only base callable
+ * with its name anywhere, which follows a function moved between files. Anything
+ * else is new, including a renamed function; the `slopgate-allow` waiver covers
+ * the cases that should pass anyway.
  */
 export function findHotCallables(head: Callable[], base: Callable[]): HotCallable[] {
 	const baseGroups = byFileAndName(base);

@@ -59,9 +59,12 @@ describe("findHotCallables", () => {
 		expect(findHotCallables([callable("f", 20, "c.ts")], base)).toHaveLength(1);
 	});
 
-	test("pairs same-named callables in a file by their order", () => {
-		const base = [callable("handle", 30, "a.ts", 0), callable("handle", 12, "a.ts", 100)];
-		const grown = [callable("handle", 30, "a.ts", 0), callable("handle", 13, "a.ts", 120)];
+	test("compares same-named callables in a file by rank, not position", () => {
+		const base = [callable("execute", 20, "a.ts", 0), callable("execute", 12, "a.ts", 100)];
+		// A simple sibling added above both shifts every position but no rank.
+		const sibling = [callable("execute", 3, "a.ts", 0), ...base.map((c) => ({ ...c, startByte: c.startByte + 50 }))];
+		expect(findHotCallables(sibling, base)).toEqual([]);
+		const grown = [callable("execute", 20, "a.ts", 0), callable("execute", 13, "a.ts", 120)];
 		expect(findHotCallables(grown, base).map((h) => h.baseComplexity)).toEqual([12]);
 	});
 
