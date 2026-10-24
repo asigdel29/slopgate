@@ -77,6 +77,12 @@ export type SlopConfig = {
 	 * meaningless regression. See the slopgate README.
 	 */
 	calibratedAtRulePackVersion: number;
+	/**
+	 * Gate each callable over the complexity cutoff: with `--base`, one that is new
+	 * or has gained decision points fails the run (see hot.ts). Absent means off,
+	 * so a config written before this rule keeps its behaviour.
+	 */
+	hotCallables?: boolean;
 };
 
 /** One callable with everything Eq. 2 needs. */
@@ -93,6 +99,10 @@ export type Callable = {
 	complexity: number;
 	/** Source lines (blank and comment-only lines excluded). */
 	sloc: number;
+	/** The callable's name as the parser read it, or null when it has none. */
+	name: string | null;
+	/** Whether a `slopgate-allow` comment ends on the line above it. */
+	waived: boolean;
 };
 
 export type FileMeasurement = {
@@ -161,3 +171,9 @@ export const DEGRADATION_VELOCITY = {
 
 /** Radon's high-complexity bound, and the cutoff in Eq. 3. Not configurable. */
 export const HIGH_COMPLEXITY_CUTOFF = 10;
+
+/**
+ * The comment marker that exempts the callable below it from the hot-callable
+ * ratchet (see hot.ts). A comment, so the exception is visible in review.
+ */
+export const WAIVER = "slopgate-allow";

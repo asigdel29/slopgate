@@ -21,6 +21,10 @@ export type Match = {
 		start: { line: number; column: number };
 		end: { line: number; column: number };
 	};
+	/** The matched source text. */
+	text?: string;
+	/** Metavariables a rule captured, e.g. a callable's `$NAME`. */
+	metaVariables?: { single?: Record<string, { text: string }> };
 };
 
 /**

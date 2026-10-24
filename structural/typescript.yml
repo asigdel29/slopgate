@@ -10,6 +10,8 @@
 #   dp-*         a McCabe decision point (CC = 1 + count, attributed to the
 #                innermost enclosing callable)
 #   meta-comment a comment span, subtracted when counting source lines
+#   meta-name-*  a callable's name, captured as $NAME on the same node a
+#                callable-* rule matched; never changes which callables exist
 #
 # Node kinds were read off `ast-grep run -p '<snippet>' --lang ts --debug-query=ast`
 # rather than guessed.
@@ -51,6 +53,34 @@ rule:
   inside:
     kind: variable_declarator
     field: value
+---
+# --- names -------------------------------------------------------------------
+#
+# Separate from the callable rules on purpose: a callable with no readable name
+# (an anonymous default export) must still count, so the name is looked up by
+# the callable's start byte rather than required by the callable rule.
+id: meta-name-declaration
+language: typescript
+severity: hint
+message: callable name
+rule:
+  any:
+    - kind: function_declaration
+    - kind: method_definition
+  has: { field: name, pattern: $NAME }
+---
+id: meta-name-bound-function
+language: typescript
+severity: hint
+message: callable name
+rule:
+  any:
+    - kind: arrow_function
+    - kind: function_expression
+  inside:
+    kind: variable_declarator
+    field: value
+    has: { field: name, pattern: $NAME }
 ---
 # --- decision points ---------------------------------------------------------
 #
