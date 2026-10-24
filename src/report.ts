@@ -3,7 +3,13 @@
 // Kept free of process state and I/O so the wording can be asserted in tests.
 
 import type { Callable, SlopConfig, SlopMetrics } from "./config.ts";
-import { DEGRADATION_VELOCITY, HIGH_COMPLEXITY_CUTOFF, HUMAN_PANEL_REFERENCE } from "./config.ts";
+import {
+	DEGRADATION_VELOCITY,
+	HIGH_COMPLEXITY_CUTOFF,
+	HUMAN_PANEL_REFERENCE,
+	WAIVER,
+} from "./config.ts";
+import type { HotCallable } from "./hot.ts";
 import { mass } from "./metrics.ts";
 
 function pct(value: number): string {
@@ -150,4 +156,23 @@ export function formatDeltaFailure(
 			? "Split the new branching into its own function instead of adding another arm to an existing one."
 			: "Factor out the duplicated lines.")
 	);
+}
+
+/**
+ * The per-callable failure: one annotation per offending callable, anchored on
+ * its line so the pull request's diff view shows it in place.
+ */
+export function formatHotCallables(hot: HotCallable[]): string[] {
+	return hot.map((h) => {
+		const what =
+			h.baseComplexity === null
+				? `is new at CC ${h.complexity}`
+				: `grew from CC ${h.baseComplexity} to ${h.complexity}`;
+		return (
+			`::error file=${h.file},line=${h.line}::${h.name ?? "this callable"} ${what}, over the ` +
+			`CC ${HIGH_COMPLEXITY_CUTOFF} cutoff. Move the new branching into its own function ` +
+			`rather than adding it here. If this one is deliberate, put a \`${WAIVER}: <reason>\` ` +
+			"comment on the line above it."
+		);
+	});
 }
