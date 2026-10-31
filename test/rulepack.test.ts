@@ -18,7 +18,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SlopConfig } from "../src/config.ts";
+import type { Language, SlopConfig } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -65,6 +65,21 @@ beforeAll(async () => {
 		"utf8",
 	);
 
+	await mkdir(join(rulesDir, "kotlin"), { recursive: true });
+	await writeFile(
+		join(rulesDir, "kotlin", "if-expression.yml"),
+		[
+			"id: test-if-expression-is-slop",
+			"language: kotlin",
+			"severity: warning",
+			"message: test rule",
+			"rule:",
+			"  kind: if_expression",
+			"",
+		].join("\n"),
+		"utf8",
+	);
+
 	previousEnv = process.env.SLOP_RULES_DIR;
 	process.env.SLOP_RULES_DIR = rulesDir;
 });
@@ -75,7 +90,7 @@ afterAll(async () => {
 	await rm(rulesDir, { recursive: true, force: true });
 });
 
-function configFor(language: "typescript" | "swift", include: string[]): SlopConfig {
+function configFor(language: Language, include: string[]): SlopConfig {
 	return {
 		languages: { [language]: { include, exclude: [] } },
 		maxDelta: { erosion: null, verbosity: null },
@@ -110,6 +125,19 @@ describe("rule pack", () => {
 				FIXTURES,
 			);
 			// branching() has exactly one guard statement.
+			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
+		},
+		TIMEOUT_MS,
+	);
+
+	test(
+		"the pack runs for Kotlin too",
+		async () => {
+			// complexity.kt contains several `if` expressions.
+			const { metrics } = await measure(
+				configFor("kotlin", ["kotlin/complexity.kt"]),
+				FIXTURES,
+			);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,

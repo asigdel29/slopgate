@@ -5,7 +5,7 @@
 // this directory stays byte-identical wherever it is vendored.
 
 /** Languages the structural rule packs cover. One authored rule file each. */
-export const LANGUAGES = ["typescript", "swift"] as const;
+export const LANGUAGES = ["typescript", "swift", "kotlin"] as const;
 export type Language = (typeof LANGUAGES)[number];
 
 /**
@@ -31,6 +31,7 @@ export const DIALECTS: Record<Language, Dialect[]> = {
 		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
 	],
 	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
+	kotlin: [{ astGrepLanguage: "kotlin", extensions: [".kt"], idSuffix: "" }],
 };
 
 export type LanguageConfig = {

@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Callable, SlopConfig } from "../src/config.ts";
+import type { Callable, Language, SlopConfig } from "../src/config.ts";
 import { findHotCallables } from "../src/hot.ts";
 import { measure } from "../src/measure.ts";
 import { formatHotCallables } from "../src/report.ts";
@@ -94,7 +94,7 @@ describe("formatHotCallables", () => {
 describe("callable names and waivers (ast-grep)", () => {
 	const FIXTURES = join(import.meta.dir, "fixtures");
 
-	function configFor(language: "typescript" | "swift", file: string): SlopConfig {
+	function configFor(language: Language, file: string): SlopConfig {
 		return {
 			languages: { [language]: { include: [file], exclude: [] } },
 			maxDelta: { erosion: null, verbosity: null },
@@ -103,7 +103,7 @@ describe("callable names and waivers (ast-grep)", () => {
 		};
 	}
 
-	async function namesIn(language: "typescript" | "swift", file: string) {
+	async function namesIn(language: Language, file: string) {
 		const { callables } = await measure(configFor(language, file), FIXTURES);
 		return callables
 			.sort((a, b) => a.startByte - b.startByte)
@@ -119,6 +119,18 @@ describe("callable names and waivers (ast-grep)", () => {
 				{ line: 13, name: "value", waived: false },
 				{ line: 19, name: "run", waived: false },
 				{ line: 24, name: "parse", waived: true },
+			]);
+		},
+		60_000,
+	);
+
+	test(
+		"Kotlin: an init block, a function and an expression-bodied getter",
+		async () => {
+			expect(await namesIn("kotlin", "kotlin/names.kt")).toEqual([
+				{ line: 4, name: "init", waived: false },
+				{ line: 8, name: "footer", waived: false },
+				{ line: 13, name: "get", waived: false },
 			]);
 		},
 		60_000,
