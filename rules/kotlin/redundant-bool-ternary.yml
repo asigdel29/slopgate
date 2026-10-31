@@ -1,0 +1,13 @@
+# Ports `redundant-bool-ternary` from the SlopCodeBench rule pack.
+# Kotlin has no ternary: `if (...) true else false` is the expression form.
+id: redundant-bool-ternary
+language: kotlin
+severity: warning
+message: if-expression returning boolean literals — the condition already is the value
+metadata:
+  category: slop
+  upstream: redundant-bool-ternary
+rule:
+  any:
+    - pattern: if ($C) true else false
+    - pattern: if ($C) false else true
