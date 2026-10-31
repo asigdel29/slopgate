@@ -1,0 +1,15 @@
+# Ports `manual-min-max` from the SlopCodeBench rule pack.
+# Kotlin has no ternary: `if (...) a else b` is the expression form.
+id: manual-min-max
+language: kotlin
+severity: warning
+message: Hand-rolled min/max — use maxOf(a, b) / minOf(a, b)
+metadata:
+  category: slop
+  upstream: manual-min-max
+rule:
+  any:
+    - pattern: if ($A > $B) $A else $B
+    - pattern: if ($A < $B) $A else $B
+    - pattern: if ($A >= $B) $A else $B
+    - pattern: if ($A <= $B) $A else $B

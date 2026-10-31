@@ -22,7 +22,7 @@ import { PACKAGE_DIR } from "../src/measure.ts";
 import { runTool } from "../src/process.ts";
 
 const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "rules");
-const EXTENSION: Record<Language, string> = { typescript: "ts", swift: "swift" };
+const EXTENSION: Record<Language, string> = { typescript: "ts", swift: "swift", kotlin: "kt" };
 
 /** Marks a line the rule under test is expected to flag. */
 const MARKER = "// SLOP";

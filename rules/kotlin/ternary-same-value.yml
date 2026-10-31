@@ -1,0 +1,10 @@
+# Ports `ternary-same-value` from the SlopCodeBench rule pack.
+id: ternary-same-value
+language: kotlin
+severity: warning
+message: Both if-expression branches produce the same value
+metadata:
+  category: slop
+  upstream: ternary-same-value
+rule:
+  pattern: if ($C) $A else $A
