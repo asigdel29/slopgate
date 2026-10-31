@@ -103,6 +103,10 @@ export function isNameRule(ruleId: string): boolean {
 const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
 	["callable-init", "init"],
 	["callable-deinit", "deinit"],
+	["callable-anonymous-initializer", "init"],
+	["callable-secondary-constructor", "constructor"],
+	["callable-getter", "get"],
+	["callable-setter", "set"],
 ];
 
 export function isDecisionPointRule(ruleId: string): boolean {

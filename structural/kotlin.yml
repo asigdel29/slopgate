@@ -1,0 +1,134 @@
+# Structural ast-grep rules for Kotlin — the Kotlin counterpart to
+# structural/swift.yml. Same rule-id contract: one scan pass yields callables,
+# decision points and comment spans for the erosion half of the slop gate
+# (arXiv 2603.24755, Eq. 2-3).
+#
+# Node kinds were read off `ast-grep run -p '<snippet>' --lang kotlin --debug-query=ast`.
+
+# --- callables ---------------------------------------------------------------
+#
+# The function_body guard drops interface and abstract members: they have no
+# complexity and no SLOC (see callable-function-declaration in swift.yml).
+# Primary constructors and property initialisers are not callables.
+#
+# Lambdas (`lambda_literal`, including Compose content lambdas and trailing
+# lambdas) are deliberately NOT callables, exactly like Swift closures: their
+# branches count toward the named callable that owns them.
+id: callable-function-declaration
+language: kotlin
+severity: hint
+message: callable
+rule:
+  kind: function_declaration
+  has:
+    kind: function_body
+---
+# A secondary constructor has no function_body node: its body is a bare
+# `statements` child, and an empty `{}` has no child at all. So the guard is on
+# the closing brace, which a delegating-only `constructor(...) : this(...)` lacks.
+id: callable-secondary-constructor
+language: kotlin
+severity: hint
+message: callable
+rule:
+  kind: secondary_constructor
+  regex: '\}\s*$'
+---
+id: callable-anonymous-initializer
+language: kotlin
+severity: hint
+message: callable
+rule:
+  kind: anonymous_initializer
+---
+# A default accessor (`get`, `private set`) has no body and no complexity.
+id: callable-getter
+language: kotlin
+severity: hint
+message: callable
+rule:
+  kind: getter
+  has:
+    kind: function_body
+---
+id: callable-setter
+language: kotlin
+severity: hint
+message: callable
+rule:
+  kind: setter
+  has:
+    kind: function_body
+---
+# --- names -------------------------------------------------------------------
+#
+# A callable's name, looked up by its start byte (see typescript.yml). The
+# other callable kinds take theirs from the rule id.
+id: meta-name-function
+language: kotlin
+severity: hint
+message: callable name
+rule:
+  kind: function_declaration
+  has: { kind: simple_identifier, pattern: $NAME }
+---
+# --- decision points ---------------------------------------------------------
+#
+# `else if` nests a fresh if_expression, so it is counted once here.
+id: dp-if
+language: kotlin
+severity: hint
+message: decision point
+rule:
+  kind: if_expression
+---
+id: dp-loop
+language: kotlin
+severity: hint
+message: decision point
+rule:
+  any:
+    - kind: for_statement
+    - kind: while_statement
+    - kind: do_while_statement
+---
+# One when_entry per arm, one when_condition per condition: `1, 2 ->` is a single
+# arm and counts once. `else ->` has no when_condition, so it is excluded.
+id: dp-when
+language: kotlin
+severity: hint
+message: decision point
+rule:
+  kind: when_entry
+  has:
+    kind: when_condition
+---
+id: dp-catch
+language: kotlin
+severity: hint
+message: decision point
+rule:
+  kind: catch_block
+---
+# `&&`, `||`, `?:`. Safe calls (`?.`) and `try` itself are not counted.
+id: dp-logical
+language: kotlin
+severity: hint
+message: decision point
+rule:
+  any:
+    - kind: conjunction_expression
+    - kind: disjunction_expression
+    - kind: elvis_expression
+---
+# --- comments ----------------------------------------------------------------
+#
+# Line comments, and block comments including KDoc.
+id: meta-comment
+language: kotlin
+severity: hint
+message: comment
+rule:
+  any:
+    - kind: line_comment
+    - kind: multiline_comment

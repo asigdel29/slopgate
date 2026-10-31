@@ -1,7 +1,7 @@
 {
   "name": "slopgate",
   "version": "0.1.0",
-  "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript and Swift.",
+  "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript, Swift and Kotlin.",
   "license": "MIT",
   "type": "module",
   "bin": {

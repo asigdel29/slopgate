@@ -10,12 +10,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Callable, SlopConfig } from "../src/config.ts";
+import type { Callable, Language, SlopConfig } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 
-function configFor(language: "typescript" | "swift", include: string[]): SlopConfig {
+function configFor(language: Language, include: string[]): SlopConfig {
 	return {
 		languages: { [language]: { include, exclude: [] } },
 		maxDelta: { erosion: null, verbosity: null },
@@ -41,12 +41,12 @@ function byStartLine(callables: Callable[]): Map<number, Callable> {
  */
 const cache = new Map<string, Promise<Awaited<ReturnType<typeof runMeasure>>>>();
 
-async function runMeasure(language: "typescript" | "swift", file: string) {
+async function runMeasure(language: Language, file: string) {
 	const { callables, metrics } = await measure(configFor(language, [file]), FIXTURES);
 	return { callables, metrics, byLine: byStartLine(callables) };
 }
 
-function measureFixture(language: "typescript" | "swift", file: string) {
+function measureFixture(language: Language, file: string) {
 	const key = `${language}:${file}`;
 	const existing = cache.get(key);
 	if (existing) return existing;
@@ -161,6 +161,55 @@ describe("swift structural rules", () => {
 		expect(metrics.detail.highComplexityCallables).toBe(1);
 		expect(metrics.erosion).toBeGreaterThan(0);
 		expect(metrics.erosion).toBeLessThan(1);
+	}, TIMEOUT_MS);
+});
+
+describe("kotlin structural rules", () => {
+	test("computes the hand-counted complexity of every callable", async () => {
+		const { byLine } = await measureFixture("kotlin", "kotlin/complexity.kt");
+
+		expect(byLine.get(9)?.complexity).toBe(1); // plain()
+		// branching() - 13 decision points; `else ->`, `?.` and `try` not counted,
+		// and `1, 2 ->` is one arm.
+		expect(byLine.get(19)?.complexity).toBe(13);
+		expect(byLine.get(68)?.complexity).toBe(3); // outer(): lambda `if` folds in
+		expect(byLine.get(69)?.complexity).toBe(2); // local fun owns its own `if`
+	}, TIMEOUT_MS);
+
+	test("a trailing lambda folds into the named function", async () => {
+		const { byLine, callables } = await measureFixture("kotlin", "kotlin/complexity.kt");
+		// content(): if + && + when arm, all inside the Compose-style lambda.
+		expect(byLine.get(55)?.complexity).toBe(4);
+		expect(callables.filter((c) => c.startLine + 1 === 56)).toHaveLength(0);
+	}, TIMEOUT_MS);
+
+	test("only members with a body are callables", async () => {
+		const { callables } = await measureFixture("kotlin", "kotlin/complexity.kt");
+		const starts = callables.map((c) => c.startLine + 1).sort((a, b) => a - b);
+		// 9 plain, 19 branching, 55 content, 68 outer, 69 local, 84 describe,
+		// 94 secondary ctor, 102 init, 108 + 114 getters, 122 setter. Not:
+		// Shape.area (82), delegating ctor (98), default accessors, property
+		// initialisers.
+		expect(starts).toEqual([9, 19, 55, 68, 69, 84, 94, 102, 108, 114, 122]);
+		const byLine = new Map(callables.map((c) => [c.startLine + 1, c.complexity]));
+		for (const line of [84, 94, 102, 108, 114, 122]) expect(byLine.get(line)).toBe(2);
+	}, TIMEOUT_MS);
+
+	test("the Eq. 3 cutoff counts CC 13 as eroded", async () => {
+		const { metrics } = await measureFixture("kotlin", "kotlin/complexity.kt");
+		expect(metrics.detail.highComplexityCallables).toBe(1);
+	}, TIMEOUT_MS);
+});
+
+describe("kotlin clones", () => {
+	test("jscpd finds a Kotlin clone", async () => {
+		// The two files hold the same function; jscpd picks the `kotlin` format
+		// from the .kt extension.
+		const { metrics } = await measure(
+			configFor("kotlin", ["kotlin/clone_a.kt", "kotlin/clone_b.kt"]),
+			FIXTURES,
+		);
+		expect(metrics.detail.cloneLines).toBeGreaterThan(0);
 	}, TIMEOUT_MS);
 });
 

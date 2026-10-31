@@ -1,0 +1,13 @@
+# Ports `verbose-none-default` from the SlopCodeBench rule pack.
+#
+# `x ?: null` is the identity: the fallback is the value the operator already
+# produces when the left side is null.
+id: redundant-nil-coalescing
+language: kotlin
+severity: warning
+message: "Elvis to null does nothing — drop the `?: null`"
+metadata:
+  category: slop
+  upstream: verbose-none-default
+rule:
+  pattern: "$X ?: null"
