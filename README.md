@@ -19,7 +19,7 @@ Lint, typecheck, dead-code and coverage gates are all blind to this. `slopgate`
 computes the paper's two metrics over a repository and fails the build when a
 change degrades it faster than a human commit typically would.
 
-Supports **TypeScript** (incl. `.tsx`) and **Swift**.
+Supports **TypeScript** (incl. `.tsx`), **Swift** and **Kotlin**.
 
 [paper]: https://arxiv.org/abs/2603.24755
 
@@ -160,14 +160,14 @@ agent speed. Every run prints the remaining headroom.
 
 The report prints the panel means (erosion 0.34, verbosity 0.19) for scale, but
 they are deliberately **not** thresholds: they were measured on **473 Python
-repositories**. Gating a TypeScript or Swift codebase on a Python distribution
+repositories**. Gating a TypeScript, Swift or Kotlin codebase on a Python distribution
 would be a category error. The ratchet is self-referential by design.
 
 ## How complexity is counted
 
 Cyclomatic complexity comes from ast-grep decision points — `if` / `else if`,
 loops, `case`, `catch`, ternary, `&&`, `||`, `??`, plus Swift's `guard` and
-`for … where` — attributed to the **innermost enclosing named callable**.
+`for … where` and Kotlin's `when` arms and `?:` — attributed to the **innermost enclosing named callable**.
 
 Two deliberate choices, both directly tested:
 
@@ -185,6 +185,14 @@ metric to the most likely place for erosion.
 
 `default:` / `else` are not decision points; they add no independent path.
 Optional chaining (`?.`) is not counted either.
+
+Kotlin callables are functions with a body, secondary constructors, `init`
+blocks, and getters and setters with a body. Lambdas, including Compose content
+and trailing lambdas, are not callables and fold into the function that owns
+them. `when` counts one decision point per arm that has a condition, so
+`1, 2 ->` counts once and `else ->` not at all. Safe calls and `try` are not
+counted. The `redundant-bool-comparison` rule is not ported to Kotlin: `x == true`
+is the idiomatic test for a `Boolean?`, and the scan has no type information.
 
 ### Swift multi-clause conditions
 
@@ -247,7 +255,7 @@ Erosion is complete and language-agnostic — CC and SLOC carry over directly.
 The paper's reference implementation is
 [SprocketLab/slop-code-bench][upstream], which is Python-only and built to
 evaluate benchmark trajectories. This is an independent reimplementation of just
-the two metrics, for TypeScript and Swift, packaged as a CI gate. Erosion is
+the two metrics, for TypeScript, Swift and Kotlin, packaged as a CI gate. Erosion is
 cross-checked against upstream's [`mass.py`][mass]; verbosity follows the
 paper's deduplicated-union definition rather than upstream's `composites.py`
 fallback, which sums the two ratios and can exceed 1.
