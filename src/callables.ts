@@ -55,7 +55,7 @@ function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number
  */
 const MULTI_CLAUSE_STATEMENT_RULES = ["dp-if", "dp-guard"];
 
-export function isConditionBindingRule(ruleId: string): boolean {
+function isConditionBindingRule(ruleId: string): boolean {
 	return ruleId.startsWith("meta-condition-binding");
 }
 
@@ -90,12 +90,12 @@ function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<num
 	return perStatement;
 }
 
-export function isCallableRule(ruleId: string): boolean {
+function isCallableRule(ruleId: string): boolean {
 	return ruleId.startsWith("callable-");
 }
 
 /** A `meta-name-*` match: the `$NAME` of the callable starting at the same byte. */
-export function isNameRule(ruleId: string): boolean {
+function isNameRule(ruleId: string): boolean {
 	return ruleId.startsWith("meta-name");
 }
 
@@ -105,7 +105,7 @@ const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
 	["callable-deinit", "deinit"],
 ];
 
-export function isDecisionPointRule(ruleId: string): boolean {
+function isDecisionPointRule(ruleId: string): boolean {
 	return ruleId.startsWith("dp-");
 }
 

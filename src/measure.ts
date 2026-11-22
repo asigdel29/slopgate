@@ -37,11 +37,11 @@ export const PACKAGE_DIR = dirname(import.meta.dir);
  *
  * The directory must contain a `VERSION` file and one subdirectory per language.
  */
-export function rulesDir(): string {
+function rulesDir(): string {
 	return process.env.SLOP_RULES_DIR ?? join(PACKAGE_DIR, "rules");
 }
 
-export async function loadRulePackVersion(): Promise<number> {
+async function loadRulePackVersion(): Promise<number> {
 	const file = Bun.file(join(rulesDir(), "VERSION"));
 	if (!(await file.exists())) return 0;
 	const parsed = Number.parseInt((await file.text()).trim(), 10);

@@ -1,0 +1,11 @@
+// Dead-code check: unused files, exports and dependencies fail `bun run knip`.
+// Add each ignore one at a time, by exact name, with the reason above it.
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": ["scripts/*.ts"],
+  "project": ["bin/**/*.ts", "src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
+  // Fixtures are input to the analysers. No code imports them.
+  "ignore": ["test/fixtures/**"],
+  // src/bin.ts finds these two by binary path at run time, not by import.
+  "ignoreDependencies": ["@ast-grep/cli", "jscpd"],
+}

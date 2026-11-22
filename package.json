@@ -19,18 +19,23 @@
     "src",
     "structural",
     "rules",
-    "examples"
+    "examples",
+    ".claude/skills",
+    ".github/instructions"
   ],
   "type": "module",
   "scripts": {
+    "check": "bun scripts/check.ts fmt:check lint typecheck knip slop test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "test": "bun test",
-    "check": "bun test && bun run typecheck",
-    "typecheck": "tsc --noEmit",
-    "self": "bun bin/slopgate.ts --report",
     "lint": "oxlint --deny-warnings",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "typecheck": "tsc --noEmit",
+    "knip": "knip-bun",
+    "slop": "bun bin/slopgate.ts --base main",
+    "test": "bun test",
+    "coverage": "sh scripts/coverage-gate.sh",
+    "self": "bun bin/slopgate.ts --report"
   },
   "dependencies": {
     "@ast-grep/cli": "0.40.0",

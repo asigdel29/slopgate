@@ -6,6 +6,8 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
     "noEmit": true,
 
     "strict": true,
@@ -16,7 +18,7 @@
 
     "types": ["bun"]
   },
-  "include": ["bin", "src", "test"],
+  "include": ["bin", "src", "scripts", "test"],
 
   // Fixtures are INPUT to the analysers, not code this project compiles. They
   // contain deliberate JSX and deliberate awkwardness, and typechecking them

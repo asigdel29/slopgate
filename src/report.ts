@@ -17,7 +17,7 @@ function pct(value: number): string {
 }
 
 /** The worst offenders, so a failing gate points at something actionable. */
-export function topOffenders(callables: Callable[], limit: number): Callable[] {
+function topOffenders(callables: Callable[], limit: number): Callable[] {
 	return callables
 		.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF && c.sloc > 0)
 		.toSorted((a, b) => mass(b.complexity, b.sloc) - mass(a.complexity, a.sloc))
@@ -126,8 +126,8 @@ export function formatReport(
 }
 
 /**
- * A GitHub Actions error annotation. Matches the `::error::` convention the
- * coverage gate already uses, so a failure surfaces the same way in the UI.
+ * A GitHub Actions error annotation. Uses the `::error::` workflow command, the
+ * CI annotation convention, so a failure surfaces inline in the pull request.
  */
 export function formatFailure(
 	metric: "erosion" | "verbosity",
