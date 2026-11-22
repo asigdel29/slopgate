@@ -25,9 +25,8 @@ function configFor(language: "typescript" | "swift", include: string[]): SlopCon
 }
 
 /**
- * Callables come back without names — the engine only ever needs ranges — so
- * tests identify them by start line, which is stable and easy to read off the
- * fixture.
+ * Callables by one-based start line. These tests are about complexity, so they
+ * find each callable by its line, which is easy to read off the fixture.
  */
 function byStartLine(callables: Callable[]): Map<number, Callable> {
 	return new Map(callables.map((c) => [c.startLine + 1, c]));

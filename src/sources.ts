@@ -35,6 +35,15 @@ function isValidUtf8(buf: Buffer): boolean {
 }
 
 /**
+ * `path` relative to `root` when it is under `root`, else `path` unchanged.
+ * The analysers report paths absolute or root-relative depending on how they
+ * were called, and every key in the engine is root-relative.
+ */
+export function relativeTo(root: string, path: string): string {
+	return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
+/**
  * Resolve a language's include/exclude globs to a sorted, de-duplicated list of
  * repo-relative paths. Sorting makes the whole run deterministic, so two runs on
  * the same tree produce byte-identical reports.

@@ -23,6 +23,7 @@ type Span = {
 	endLine: number;
 };
 
+/** The byte and line range of a match. */
 function toSpan(m: Match): Span {
 	return {
 		startByte: m.range.byteOffset.start,
@@ -32,8 +33,17 @@ function toSpan(m: Match): Span {
 	};
 }
 
+/** The span's length in bytes, which orders spans from innermost to outermost. */
 function size(s: Span): number {
 	return s.endByte - s.startByte;
+}
+
+/**
+ * The smallest span in `bySizeAsc` that contains `byte`, or undefined. The
+ * list must be sorted smallest first, so the first hit is the innermost.
+ */
+function innermost<T extends Span>(bySizeAsc: T[], byte: number): T | undefined {
+	return bySizeAsc.find((s) => byte >= s.startByte && byte < s.endByte);
 }
 
 /** Count the file's source lines that fall inside `[startLine, endLine]`. */
@@ -43,6 +53,30 @@ function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number
 		if (sourceLines.has(line)) count++;
 	}
 	return count;
+}
+
+/** What a structural match means to the engine. */
+type RuleKind = "callable" | "name" | "comment" | "binding" | "decision";
+
+/**
+ * The rule-id contract with structural/*.yml: a match's meaning comes from the
+ * prefix of its rule id. Prefix rather than equality, because a re-targeted
+ * dialect pack suffixes rule ids (`meta-comment-tsx`). This table is the one
+ * place the engine reads the contract.
+ */
+const RULE_KINDS: Array<[prefix: string, kind: RuleKind]> = [
+	["callable-", "callable"],
+	// The `$NAME` of the callable that starts at the same byte.
+	["meta-name", "name"],
+	["meta-comment", "comment"],
+	// One binding clause of a multi-clause Swift condition.
+	["meta-condition-binding", "binding"],
+	["dp-", "decision"],
+];
+
+/** The kind of a match from its rule id, or null for a rule the engine does not read. */
+export function ruleKind(ruleId: string): RuleKind | null {
+	return RULE_KINDS.find(([prefix]) => ruleId.startsWith(prefix))?.[1] ?? null;
 }
 
 /**
@@ -55,10 +89,11 @@ function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number
  */
 const MULTI_CLAUSE_STATEMENT_RULES = ["dp-if", "dp-guard"];
 
-/** A `meta-condition-binding` match: one binding clause of a multi-clause condition. */
-function isConditionBindingRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-condition-binding");
-}
+/** Callables whose name is their kind rather than an identifier in the source. */
+const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
+	["callable-init", "init"],
+	["callable-deinit", "deinit"],
+];
 
 /**
  * Extra decision points contributed by multi-clause conditions, keyed by the
@@ -70,52 +105,86 @@ function isConditionBindingRule(ruleId: string): boolean {
  * `if let` inside another one does not inflate the outer statement's count.
  */
 function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<number, number> {
-	const perStatement = new Map<number, number>();
-	if (statements.length === 0 || bindings.length === 0) return perStatement;
-
 	const bySizeAsc = statements.toSorted((a, b) => size(a) - size(b));
+	const bindingsPerStatement = Map.groupBy(
+		bindings.flatMap((b) => innermost(bySizeAsc, b.startByte) ?? []),
+		(statement) => statement.startByte,
+	);
+	return new Map(
+		[...bindingsPerStatement].map(([start, owned]) => [start, Math.max(0, owned.length - 1)]),
+	);
+}
 
-	for (const binding of bindings) {
-		for (const statement of bySizeAsc) {
-			if (binding.startByte >= statement.startByte && binding.startByte < statement.endByte) {
-				perStatement.set(statement.startByte, (perStatement.get(statement.startByte) ?? 0) + 1);
-				break;
-			}
-		}
+/** The name of each callable in one file, keyed by its start byte. */
+function namesByStart(callables: Match[], names: Match[]): Map<number, string> {
+	return new Map([
+		...callables.flatMap((m) => {
+			const intrinsic = INTRINSIC_NAMES.find(([prefix]) => m.ruleId.startsWith(prefix));
+			return intrinsic ? [[m.range.byteOffset.start, intrinsic[1]] as const] : [];
+		}),
+		...names.flatMap((m) => {
+			const name = m.metaVariables?.single?.NAME?.text;
+			return name ? [[m.range.byteOffset.start, name] as const] : [];
+		}),
+	]);
+}
+
+/** One file's matches and source lines, as buildCallables groups them. */
+type FileScan = {
+	file: string;
+	language: Language;
+	matches: Match[];
+	sourceLines: Set<number>;
+};
+
+/**
+ * The callables in one file, innermost first. A decision point counts toward
+ * the innermost callable that contains it. One outside every callable is
+ * top-level control flow; upstream's mass.py only sums function and method
+ * symbols, so it is dropped rather than attributed anywhere.
+ */
+function callablesInFile({ file, language, matches, sourceLines }: FileScan): Callable[] {
+	const byKind = Map.groupBy(matches, (m) => ruleKind(m.ruleId));
+	const ofKind = (kind: RuleKind): Match[] => byKind.get(kind) ?? [];
+
+	const spans = ofKind("callable")
+		.map(toSpan)
+		.toSorted((a, b) => size(a) - size(b));
+	const complexity = new Map<Span, number>(spans.map((s) => [s, 1]));
+	const addDecisions = (byte: number, count: number): void => {
+		const owner = innermost(spans, byte);
+		if (owner) complexity.set(owner, (complexity.get(owner) ?? 1) + count);
+	};
+
+	for (const decision of ofKind("decision")) addDecisions(decision.range.byteOffset.start, 1);
+	const statements = ofKind("decision")
+		.filter((m) => MULTI_CLAUSE_STATEMENT_RULES.some((id) => m.ruleId.startsWith(id)))
+		.map(toSpan);
+	for (const [start, extra] of extraConditionComplexity(
+		statements,
+		ofKind("binding").map(toSpan),
+	)) {
+		addDecisions(start, extra);
 	}
 
-	// n bindings => n-1 extra decision points.
-	for (const [start, count] of perStatement) {
-		perStatement.set(start, Math.max(0, count - 1));
-	}
-	return perStatement;
-}
-
-/** A `callable-*` match: the span of one named callable. */
-function isCallableRule(ruleId: string): boolean {
-	return ruleId.startsWith("callable-");
-}
-
-/** A `meta-name-*` match: the `$NAME` of the callable starting at the same byte. */
-function isNameRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-name");
-}
-
-/** Callables whose name is their kind rather than an identifier in the source. */
-const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
-	["callable-init", "init"],
-	["callable-deinit", "deinit"],
-];
-
-/** A `dp-*` match: one decision point, which adds 1 to its callable's CC. */
-function isDecisionPointRule(ruleId: string): boolean {
-	return ruleId.startsWith("dp-");
-}
-
-// Prefix rather than equality: a re-targeted dialect pack suffixes rule ids
-// (see scan.ts:retargetRules), so `meta-comment-tsx` must classify the same way.
-export function isCommentRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-comment");
+	const names = namesByStart(ofKind("callable"), ofKind("name"));
+	const waiverEndLines = new Set(
+		ofKind("comment")
+			.filter((m) => m.text?.includes(WAIVER))
+			.map((m) => m.range.end.line),
+	);
+	return spans.map((span) => ({
+		file,
+		language,
+		startByte: span.startByte,
+		endByte: span.endByte,
+		startLine: span.startLine,
+		endLine: span.endLine,
+		complexity: complexity.get(span) ?? 1,
+		sloc: slocWithin(sourceLines, span.startLine, span.endLine),
+		name: names.get(span.startByte) ?? null,
+		waived: waiverEndLines.has(span.startLine - 1),
+	}));
 }
 
 /**
@@ -131,120 +200,10 @@ export function buildCallables(
 	language: Language,
 ): Callable[] {
 	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
-
-	const callableSpansByFile = new Map<string, Span[]>();
-	const decisionPointsByFile = new Map<string, Span[]>();
-	// Statements that can carry a multi-clause condition, and the bindings found
-	// in them — tracked separately because their contribution is arithmetic
-	// (n - 1) rather than one-per-match.
-	const clauseStatementsByFile = new Map<string, Span[]>();
-	const conditionBindingsByFile = new Map<string, Span[]>();
-	// A callable's name keyed by its start byte, and the last lines of waiver
-	// comments, both per file.
-	const namesByFile = new Map<string, Map<number, string>>();
-	const waiverEndLinesByFile = new Map<string, Set<number>>();
-
-	for (const m of matches) {
-		if (isCallableRule(m.ruleId)) {
-			const spans = callableSpansByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			callableSpansByFile.set(m.file, spans);
-			const intrinsic = INTRINSIC_NAMES.find(([prefix]) => m.ruleId.startsWith(prefix));
-			if (intrinsic) setName(namesByFile, m.file, m.range.byteOffset.start, intrinsic[1]);
-		} else if (isNameRule(m.ruleId)) {
-			const name = m.metaVariables?.single?.NAME?.text;
-			if (name) setName(namesByFile, m.file, m.range.byteOffset.start, name);
-		} else if (isCommentRule(m.ruleId)) {
-			if (m.text?.includes(WAIVER)) {
-				const lines = waiverEndLinesByFile.get(m.file) ?? new Set<number>();
-				lines.add(m.range.end.line);
-				waiverEndLinesByFile.set(m.file, lines);
-			}
-		} else if (isConditionBindingRule(m.ruleId)) {
-			const spans = conditionBindingsByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			conditionBindingsByFile.set(m.file, spans);
-		} else if (isDecisionPointRule(m.ruleId)) {
-			const spans = decisionPointsByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			decisionPointsByFile.set(m.file, spans);
-
-			// A dialect pack suffixes rule ids, so match on the prefix.
-			if (MULTI_CLAUSE_STATEMENT_RULES.some((id) => m.ruleId.startsWith(id))) {
-				const stmts = clauseStatementsByFile.get(m.file) ?? [];
-				stmts.push(toSpan(m));
-				clauseStatementsByFile.set(m.file, stmts);
-			}
-		}
-	}
-
-	const callables: Callable[] = [];
-
-	for (const [file, spans] of callableSpansByFile) {
+	return [...Map.groupBy(matches, (m) => m.file)].flatMap(([file, fileMatches]) => {
 		const sourceLines = sourceLinesByFile.get(file);
-		if (!sourceLines) continue;
-
-		// Innermost-first. Scanning this order lets the containment search stop at
-		// the first hit, which is by construction the tightest enclosing callable.
-		const bySizeAsc = spans.toSorted((a, b) => size(a) - size(b));
-		const complexity = new Map<Span, number>(bySizeAsc.map((s) => [s, 1]));
-
-		for (const dp of decisionPointsByFile.get(file) ?? []) {
-			for (const callable of bySizeAsc) {
-				if (dp.startByte >= callable.startByte && dp.startByte < callable.endByte) {
-					complexity.set(callable, (complexity.get(callable) as number) + 1);
-					break;
-				}
-			}
-			// A decision point outside every callable is top-level control flow.
-			// Upstream's mass.py only sums function/method symbols, so it is
-			// intentionally dropped rather than attributed anywhere.
-		}
-
-		// Multi-clause conditions add their extra branches to whichever callable
-		// owns the statement — the same attribution the statement itself got.
-		const extras = extraConditionComplexity(
-			clauseStatementsByFile.get(file) ?? [],
-			conditionBindingsByFile.get(file) ?? [],
-		);
-		for (const [statementStart, extra] of extras) {
-			if (extra === 0) continue;
-			for (const callable of bySizeAsc) {
-				if (statementStart >= callable.startByte && statementStart < callable.endByte) {
-					complexity.set(callable, (complexity.get(callable) as number) + extra);
-					break;
-				}
-			}
-		}
-
-		const names = namesByFile.get(file);
-		const waiverEndLines = waiverEndLinesByFile.get(file);
-		for (const span of bySizeAsc) {
-			callables.push({
-				file,
-				language,
-				startByte: span.startByte,
-				endByte: span.endByte,
-				startLine: span.startLine,
-				endLine: span.endLine,
-				complexity: complexity.get(span) as number,
-				sloc: slocWithin(sourceLines, span.startLine, span.endLine),
-				name: names?.get(span.startByte) ?? null,
-				waived: waiverEndLines?.has(span.startLine - 1) ?? false,
-			});
-		}
-	}
-
-	return callables;
-}
-
-function setName(
-	namesByFile: Map<string, Map<number, string>>,
-	file: string,
-	startByte: number,
-	name: string,
-): void {
-	const names = namesByFile.get(file) ?? new Map<number, string>();
-	names.set(startByte, name);
-	namesByFile.set(file, names);
+		return sourceLines
+			? callablesInFile({ file, language, matches: fileMatches, sourceLines })
+			: [];
+	});
 }

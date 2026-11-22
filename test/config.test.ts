@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../bin/slopgate.ts";
+import { loadConfig } from "../src/config.ts";
 
 async function configFile(contents: unknown): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "slop-cfg-"));

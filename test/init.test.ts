@@ -10,7 +10,7 @@ import { lstat, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ruleLink, runInit } from "../src/init.ts";
-import { PACKAGE_DIR } from "../src/measure.ts";
+import { PACKAGE_DIR } from "../src/config.ts";
 
 const target = await mkdtemp(join(tmpdir(), "slopgate-init-"));
 

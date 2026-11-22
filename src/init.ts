@@ -7,7 +7,7 @@
 import { copyFile, lstat, mkdir, realpath, symlink, unlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { PACKAGE_DIR } from "./measure.ts";
+import { PACKAGE_DIR } from "./config.ts";
 
 /** Suffix of an agent rule file. Copilot reads these from .github/instructions. */
 export const RULE_SUFFIX = ".instructions.md";

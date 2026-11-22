@@ -1,5 +1,5 @@
 // Fixture for callable names and the slopgate-allow waiver (test/hot.test.ts).
-// Every callable here is CC 1; only its name and waiver are under test.
+// Only the names and the waiver are under test; complexity is not.
 
 export function runJob(a: number) {
 	return a;

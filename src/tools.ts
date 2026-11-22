@@ -16,11 +16,12 @@
 
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { PACKAGE_DIR } from "./config.ts";
 
-const PACKAGE_DIR = dirname(import.meta.dir);
-
+/** The analysers that slopgate pins and resolves. */
 export type ToolName = "ast-grep" | "jscpd";
 
+/** The environment variable that overrides each tool's path. */
 const ENV_OVERRIDE: Record<ToolName, string> = {
 	"ast-grep": "SLOP_AST_GREP",
 	jscpd: "SLOP_JSCPD",

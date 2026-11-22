@@ -48,23 +48,31 @@ export function findHotCallables(head: Callable[], base: Callable[]): HotCallabl
 		base.filter((c) => c.name !== null),
 		(c) => c.name as string,
 	);
+	const movedFrom = (c: Callable): Callable | undefined => {
+		const sameName = c.name === null ? undefined : baseByName.get(c.name);
+		return sameName?.length === 1 ? sameName[0] : undefined;
+	};
 
-	const hot: HotCallable[] = [];
-	for (const [key, group] of byFileAndName(head)) {
-		const baseGroup = baseGroups.get(key) ?? [];
-		group.forEach((c, i) => {
-			if (c.complexity <= HIGH_COMPLEXITY_CUTOFF || c.waived) return;
-			const moved = baseGroup.length === 0 && c.name !== null ? baseByName.get(c.name) : undefined;
-			const match = baseGroup[i] ?? (moved?.length === 1 ? moved[0] : undefined);
-			if (match !== undefined && c.complexity <= match.complexity) return;
-			hot.push({
-				file: c.file,
-				line: c.startLine + 1,
-				name: c.name,
-				complexity: c.complexity,
-				baseComplexity: match?.complexity ?? null,
-			});
-		});
-	}
-	return hot.toSorted((a, b) => b.complexity - a.complexity);
+	return [...byFileAndName(head)]
+		.flatMap(([key, group]) => {
+			const baseGroup = baseGroups.get(key) ?? [];
+			return group.map((c, rank) => ({
+				c,
+				match: baseGroup.length === 0 ? movedFrom(c) : baseGroup[rank],
+			}));
+		})
+		.filter(
+			({ c, match }) =>
+				c.complexity > HIGH_COMPLEXITY_CUTOFF &&
+				!c.waived &&
+				(match === undefined || c.complexity > match.complexity),
+		)
+		.map(({ c, match }) => ({
+			file: c.file,
+			line: c.startLine + 1,
+			name: c.name,
+			complexity: c.complexity,
+			baseComplexity: match?.complexity ?? null,
+		}))
+		.toSorted((a, b) => b.complexity - a.complexity);
 }

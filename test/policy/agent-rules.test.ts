@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { RULE_SUFFIX, ruleLink } from "../../src/init.ts";
-import { PACKAGE_DIR } from "../../src/measure.ts";
+import { PACKAGE_DIR } from "../../src/config.ts";
 
 const INSTRUCTIONS = join(PACKAGE_DIR, ".github/instructions");
 const RULES = join(PACKAGE_DIR, ".claude/rules");

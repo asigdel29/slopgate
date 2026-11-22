@@ -16,9 +16,9 @@
 import { describe, expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { resolveTool } from "../src/bin.ts";
+import { resolveTool } from "../src/tools.ts";
 import { LANGUAGES, type Language } from "../src/config.ts";
-import { PACKAGE_DIR } from "../src/measure.ts";
+import { PACKAGE_DIR } from "../src/config.ts";
 import { runTool } from "../src/process.ts";
 
 const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "rules");
@@ -46,7 +46,7 @@ async function allRules(): Promise<RuleFile[]> {
 	return rules;
 }
 
-/** Zero-based lines carrying the marker, and the file's total line count. */
+/** Zero-based lines that carry the marker. */
 function expectedLines(source: string): number[] {
 	return source
 		.split("\n")
@@ -55,12 +55,12 @@ function expectedLines(source: string): number[] {
 }
 
 async function firedLines(rulePath: string, fixturePath: string): Promise<number[]> {
-	const { stdout } = await runTool(
-		"ast-grep",
-		resolveTool("ast-grep", PACKAGE_DIR),
-		["scan", "--rule", rulePath, "--json", fixturePath],
-		{ cwd: PACKAGE_DIR, root: PACKAGE_DIR },
-	);
+	const { stdout } = await runTool({
+		bin: resolveTool("ast-grep", PACKAGE_DIR),
+		args: ["scan", "--rule", rulePath, "--json", fixturePath],
+		name: "ast-grep",
+		cwd: PACKAGE_DIR,
+	});
 	const trimmed = stdout.trim();
 	if (trimmed === "") return [];
 	const matches = JSON.parse(trimmed) as Array<{ range: { start: { line: number } } }>;
@@ -70,10 +70,10 @@ async function firedLines(rulePath: string, fixturePath: string): Promise<number
 const rules = await allRules();
 
 describe("rule pack fixtures", () => {
-	// An empty pack is a valid state (rules/VERSION 0), so this is not a failure —
-	// but it should be visible rather than silently vacuous.
-	test("the pack is discoverable", () => {
-		expect(Array.isArray(rules)).toBe(true);
+	// Without this, a pack that the loader could not find would run zero tests
+	// below and pass.
+	test("the pack has rules to check", () => {
+		expect(rules.length).toBeGreaterThan(0);
 	});
 
 	for (const rule of rules) {

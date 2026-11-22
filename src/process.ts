@@ -10,12 +10,31 @@
 // Both streams are always drained here, and both are included in the error.
 
 import { spawn } from "node:child_process";
-import { describeMissing, type ToolName } from "./bin.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-/** Tools spawned by the engine. `git` is ambient; the analysers are pinned. */
-export type SpawnTool = ToolName | "git";
+/** What a finished run wrote to its two streams. */
+type RunResult = { stdout: string; stderr: string };
 
-export type RunResult = { stdout: string; stderr: string };
+/**
+ * One tool run: the binary, its arguments, a name for messages, the working
+ * folder, and a hint that explains a tool that could not be started.
+ */
+type Run = { bin: string; args: string[]; name: string; cwd: string; missingHint?: string };
+
+/**
+ * Run `fn` with a new empty directory under the system temp folder, and remove
+ * the directory afterwards, also when `fn` throws.
+ */
+export async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>): Promise<T> {
+	const dir = await mkdtemp(join(tmpdir(), prefix));
+	try {
+		return await fn(dir);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}
 
 /**
  * Run `bin` and resolve with its output, or reject with everything known about
@@ -28,15 +47,10 @@ export type RunResult = { stdout: string; stderr: string };
  * scan would produce a wrong number that looks like a real one, which is worse
  * than a failed build.
  */
-export function runTool(
-	tool: SpawnTool,
-	bin: string,
-	args: string[],
-	options: { cwd: string; root: string },
-): Promise<RunResult> {
+export function runTool({ bin, args, name: tool, cwd, missingHint }: Run): Promise<RunResult> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(bin, args, {
-			cwd: options.cwd,
+			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 
@@ -66,11 +80,9 @@ export function runTool(
 				);
 				return;
 			}
-			if (tool === "git") {
-				reject(new Error(`could not run git: ${err.message}`));
-				return;
-			}
-			reject(new Error(`${describeMissing(tool, options.root)}\n(${err.message})`));
+			reject(
+				new Error(`could not run ${tool}: ${err.message}${missingHint ? `\n${missingHint}` : ""}`),
+			);
 		});
 
 		child.on("close", (code) => {

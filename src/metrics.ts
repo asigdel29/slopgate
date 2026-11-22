@@ -13,13 +13,23 @@
 import type { Callable } from "./config.ts";
 import { HIGH_COMPLEXITY_CUTOFF } from "./config.ts";
 
-export type ErosionResult = {
+/** Eq. 3 and the sums and counts behind it. */
+type ErosionResult = {
 	erosion: number;
 	totalMass: number;
 	highComplexityMass: number;
 	callables: number;
 	highComplexityCallables: number;
 };
+
+/**
+ * Whether `value` breaks `limit`. A null limit means not gated. The gate uses
+ * it for a delta against `maxDelta` and for a level against `thresholds`;
+ * the report uses it for the verdict it prints, so the two cannot disagree.
+ */
+export function exceeds(value: number, limit: number | null): boolean {
+	return limit !== null && value > limit;
+}
 
 /** Eq. 2. The square root compresses size so complexity dominates, not raw length. */
 export function mass(complexity: number, sloc: number): number {
@@ -65,7 +75,8 @@ export function computeErosion(callables: Callable[]): ErosionResult {
 	};
 }
 
-export type VerbosityResult = {
+/** Eq. 4 and the line counts behind it. */
+type VerbosityResult = {
 	verbosity: number;
 	flaggedLines: number;
 	cloneLines: number;

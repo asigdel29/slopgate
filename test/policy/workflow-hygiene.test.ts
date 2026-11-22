@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PACKAGE_DIR as ROOT } from "../../src/measure.ts";
+import { PACKAGE_DIR as ROOT } from "../../src/config.ts";
 
 /** Every workflow file this repository runs or ships, relative to the root. */
 const WORKFLOWS = [

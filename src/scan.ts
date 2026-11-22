@@ -5,11 +5,12 @@
 // the slop-rule hits for Eq. 4. Rule ids carry the meaning — see
 // structural/typescript.yml for the id contract.
 
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { resolveTool } from "./bin.ts";
+import type { Dialect } from "./config.ts";
 import { runTool } from "./process.ts";
+import { relativeTo } from "./sources.ts";
+import { describeMissing, resolveTool } from "./tools.ts";
 
 /** A single ast-grep match, narrowed to the fields the engine uses. */
 export type Match = {
@@ -34,6 +35,10 @@ export type Match = {
  */
 const BATCH_SIZE = 400;
 
+/**
+ * Rewrite one rule file's text for another grammar: the `language:` line, and
+ * a suffix on each `id:` so a re-targeted pack keeps unique ids.
+ */
 export function retargetRuleText(source: string, targetLanguage: string, idSuffix: string): string {
 	return source
 		.split("\n")
@@ -45,43 +50,29 @@ export function retargetRuleText(source: string, targetLanguage: string, idSuffi
 		.join("\n");
 }
 
-/** Re-target a single rule file into `destDir`, returning the new path. */
-export async function retargetRules(
-	ruleFile: string,
-	targetLanguage: string,
-	idSuffix: string,
-	destDir: string,
-): Promise<string> {
-	const rewritten = retargetRuleText(await Bun.file(ruleFile).text(), targetLanguage, idSuffix);
-	const target = join(destDir, basename(ruleFile));
-	await writeFile(target, rewritten, "utf8");
-	return target;
-}
-
-/** Re-target every `.yml` in `ruleDir` into a fresh directory under `destDir`. */
-export async function retargetRuleDir(
-	ruleDir: string,
-	targetLanguage: string,
-	idSuffix: string,
-	destDir: string,
-): Promise<string> {
-	const out = join(destDir, `rules-${targetLanguage}`);
-	await mkdir(out, { recursive: true });
-	for (const name of await readdir(ruleDir)) {
-		if (!name.endsWith(".yml")) continue;
-		const rewritten = retargetRuleText(
-			await Bun.file(join(ruleDir, name)).text(),
-			targetLanguage,
-			idSuffix,
+/**
+ * Write a copy of each rule file in `files` into `destDir`, re-targeted to
+ * `dialect`, under the same base name. ast-grep reads a rule's grammar from
+ * its `language:` line, so this is how one authored pack runs on .tsx too.
+ */
+export async function writeRetargeted({
+	files,
+	dialect,
+	destDir,
+}: {
+	files: string[];
+	dialect: Dialect;
+	destDir: string;
+}): Promise<void> {
+	await mkdir(destDir, { recursive: true });
+	for (const file of files) {
+		const text = retargetRuleText(
+			await Bun.file(file).text(),
+			dialect.astGrepLanguage,
+			dialect.idSuffix,
 		);
-		await writeFile(join(out, name), rewritten, "utf8");
+		await writeFile(join(destDir, basename(file)), text, "utf8");
 	}
-	return out;
-}
-
-/** A temp workspace for re-targeted rule files; caller removes it. */
-export function createWorkspace(): Promise<string> {
-	return mkdtemp(join(tmpdir(), "slop-"));
 }
 
 /**
@@ -92,7 +83,7 @@ export function createWorkspace(): Promise<string> {
  *   "rule"    a single rule file (possibly multi-document)  -> --rule
  *   "project" an sgconfig.yml with `ruleDirs:`              -> --config
  */
-export type RuleSource = { kind: "rule" | "project"; path: string };
+type RuleSource = { kind: "rule" | "project"; path: string };
 
 /**
  * Scan `files` with `source` and return every match.
@@ -102,7 +93,7 @@ export type RuleSource = { kind: "rule" | "project"; path: string };
  * denominator and the scanned set can never disagree.
  *
  * There is no `--lang` flag: `ast-grep scan` takes the language from each rule's
- * `language:` field, which is what retargetRules above manipulates.
+ * `language:` field, which is what writeRetargeted above changes.
  */
 export async function scan(source: RuleSource, files: string[], cwd: string): Promise<Match[]> {
 	if (files.length === 0) return [];
@@ -113,12 +104,13 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
 		const batch = files.slice(i, i + BATCH_SIZE);
-		const { stdout, stderr } = await runTool(
-			"ast-grep",
+		const { stdout, stderr } = await runTool({
 			bin,
-			["scan", flag, source.path, "--json", ...batch.map((f) => (cwd ? `${cwd}/${f}` : f))],
-			{ cwd, root: cwd },
-		);
+			args: ["scan", flag, source.path, "--json", ...batch.map((f) => `${cwd}/${f}`)],
+			name: "ast-grep",
+			cwd,
+			missingHint: describeMissing("ast-grep", cwd),
+		});
 
 		// ast-grep exits 0 even when it could not read some of the paths it was
 		// given, reporting them only on stderr ("ERROR: <path>: No such file").
@@ -144,14 +136,7 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 				{ cause: err },
 			);
 		}
-		// Re-relativise so downstream keys are stable regardless of how the
-		// engine was invoked.
-		for (const m of parsed) {
-			matches.push({
-				...m,
-				file: cwd && m.file.startsWith(`${cwd}/`) ? m.file.slice(cwd.length + 1) : m.file,
-			});
-		}
+		for (const m of parsed) matches.push({ ...m, file: relativeTo(cwd, m.file) });
 	}
 
 	return matches;

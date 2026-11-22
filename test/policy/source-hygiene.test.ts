@@ -8,7 +8,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PACKAGE_DIR } from "../../src/measure.ts";
+import { PACKAGE_DIR } from "../../src/config.ts";
 
 test("no lint-disable comment in bin, src or scripts", async () => {
 	const hits: string[] = [];

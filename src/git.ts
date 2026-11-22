@@ -5,80 +5,67 @@
 // runs against a working tree that may be dirty and, in CI, is the thing being
 // built. Nothing here ever mutates the caller's checkout.
 
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runTool } from "./process.ts";
+import { rm } from "node:fs/promises";
+import { runTool, withTempDir } from "./process.ts";
 
 /**
- * `git` is not one of the pinned analysers — it is ambient, and its output here
- * (a SHA, a worktree) does not affect the measurement, only which tree is
- * measured. So it resolves from PATH rather than through bin.ts.
+ * Run git in `cwd` and return its trimmed stdout. git is not one of the pinned
+ * analysers: its output here (a SHA, a worktree) does not affect the
+ * measurement, only which tree is measured, so it comes from PATH.
  */
 async function git(args: string[], cwd: string): Promise<string> {
-	const { stdout } = await runTool("git", "git", args, { cwd, root: cwd });
+	const { stdout } = await runTool({ bin: "git", args, name: "git", cwd });
 	return stdout.trim();
-}
-
-export async function isGitRepository(root: string): Promise<boolean> {
-	try {
-		return (await git(["rev-parse", "--is-inside-work-tree"], root)) === "true";
-	} catch {
-		return false;
-	}
 }
 
 /**
  * Resolve the commit a change should be compared against.
  *
  * The merge base, not the base branch tip: comparing against the tip would
- * attribute every change that landed on the base branch since this one forked to
- * the PR under review.
+ * attribute every change that landed on the base branch since this one forked
+ * to the PR under review.
+ *
+ * When there is no merge base in the clone, the ref itself is used, with a
+ * warning. A shallow CI checkout of a pull request's merge commit needs this:
+ * there the base SHA is the merge base, but the clone has too little history
+ * for git to prove it. On a shallow clone of a branch tip the same fallback is
+ * wrong, so the warning names the fix.
  */
 export async function resolveBase(ref: string, root: string): Promise<string> {
 	try {
 		return await git(["merge-base", "HEAD", ref], root);
 	} catch {
-		// No common ancestor (unrelated histories, or a shallow clone that did not
-		// fetch deeply enough). Fall back to the ref itself and let the caller's
-		// error surface if it is unusable.
+		console.error(
+			`::warning::no merge base of HEAD and ${ref} in this clone, so ${ref} itself is the base. ` +
+				"That is correct for a pull request's merge commit; elsewhere, fetch more history " +
+				"(fetch-depth: 0).",
+		);
 		return await git(["rev-parse", ref], root);
 	}
 }
 
-export type Worktree = {
-	path: string;
-	dispose: () => Promise<void>;
-};
-
 /**
- * Materialise `ref` in a throwaway worktree.
- *
- * `--detach` avoids creating a branch, and `--no-checkout` is deliberately NOT
- * used: the files have to be on disk for the analysers to parse them.
+ * Run `fn` on a throwaway detached worktree of `ref`, and remove the worktree
+ * afterwards, also when `fn` throws. The files must be on disk for the
+ * analysers to parse them, so the checkout is a real one.
  */
-export async function checkoutWorktree(ref: string, root: string): Promise<Worktree> {
-	const path = await mkdtemp(join(tmpdir(), "slop-base-"));
-
-	// mkdtemp created it, but `git worktree add` insists on making the directory
-	// itself unless the existing one is empty — it is, so this succeeds.
-	await git(["worktree", "add", "--detach", "--quiet", path, ref], root);
-
-	return {
-		path,
-		dispose: async () => {
-			// Prune the registration first; removing the directory alone would leave
+export async function withWorktree<T>(
+	{ ref, root }: { ref: string; root: string },
+	fn: (path: string) => Promise<T>,
+): Promise<T> {
+	return withTempDir("slop-base-", async (path) => {
+		// `git worktree add` accepts the directory because it is empty.
+		await git(["worktree", "add", "--detach", "--quiet", path, ref], root);
+		try {
+			return await fn(path);
+		} finally {
+			// Prune the registration too; removing the directory alone would leave
 			// a stale entry in .git/worktrees that `git worktree list` keeps showing.
-			try {
-				await git(["worktree", "remove", "--force", path], root);
-			} catch {
+			await git(["worktree", "remove", "--force", path], root).catch(async () => {
 				await rm(path, { recursive: true, force: true });
-				try {
-					await git(["worktree", "prune"], root);
-				} catch {
-					// Best effort: a leaked registration is untidy, not incorrect.
-				}
-			}
-		},
-	};
+				// Best effort: a leaked registration is untidy, not incorrect.
+				await git(["worktree", "prune"], root).catch(() => "");
+			});
+		}
+	});
 }

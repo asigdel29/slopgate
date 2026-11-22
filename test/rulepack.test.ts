@@ -1,9 +1,8 @@
 // Tests for the slop rule pack path — the rule-flagged half of Eq. 4.
 //
-// This path is dormant in the shipped package (rules/VERSION is 0, the rule
-// directories are empty), which is exactly why it needs its own tests: nothing
-// else exercises it, so a break here stays invisible until the first rule pack
-// lands and silently contributes nothing to verbosity.
+// These tests use a small temporary pack, not the shipped one, so they check
+// the scan path itself: a break here would make every rule contribute nothing
+// to verbosity, with no error.
 //
 // A real defect this file exists to prevent: the pack is scanned through an
 // ast-grep *project config* (`ruleDirs:`), which takes `--config`. Passing it to
