@@ -24,25 +24,19 @@ export function signed(value: number): string {
 	return `${value >= 0 ? "+" : ""}${fixed(value)}`;
 }
 
-/**
- * Whether `value` breaks `limit`. A null limit means not gated. The gate uses
- * it for a delta against `maxDelta` and for a level against `thresholds`; the
- * report uses it for the verdict it prints, so the two cannot disagree.
- */
-export function exceeds(value: number, limit: number | null): boolean {
-	return limit !== null && value > limit;
-}
-
-/** One metric's value against a limit: the base and head levels, or a level and a ceiling. */
+/** One metric's change against its maxDelta: the base and head levels, and the limit. */
 type Breach = { metric: Metric; before: number; after: number; limit: number };
+
+/** One metric's level against its absolute threshold. */
+type Overshoot = { metric: Metric; value: number; ceiling: number };
 
 /**
  * The absolute backstop failure, as a GitHub Actions `::error::` annotation, so
  * it shows inline in the pull request.
  */
-function thresholdMessage({ metric, after, limit }: Breach): string {
+function thresholdMessage({ metric, value, ceiling }: Overshoot): string {
 	return (
-		`::error::${metric} ${fixed(after)} exceeds the ${limit} ratchet ceiling — ` +
+		`::error::${metric} ${fixed(value)} exceeds the ${ceiling} ratchet ceiling — ` +
 		`this change concentrates complexity or adds redundant code. ` +
 		`The ceiling is a one-way ratchet and must not be raised; ` +
 		`reduce ${metric === "erosion" ? "branching in the largest functions" : "duplicated or flagged lines"} instead.`
@@ -133,7 +127,7 @@ function deltaFailures({ config, head, base }: GateInput): string[] {
 	if (base === null) return [];
 	return METRICS.flatMap((m) => {
 		const limit = config.maxDelta[m];
-		return limit !== null && exceeds(head[m] - base[m], limit)
+		return limit !== null && head[m] - base[m] > limit
 			? [deltaMessage({ metric: m, before: base[m], after: head[m], limit })]
 			: [];
 	});
@@ -143,8 +137,8 @@ function deltaFailures({ config, head, base }: GateInput): string[] {
 function thresholdFailures({ config, head }: GateInput): string[] {
 	return METRICS.flatMap((m) => {
 		const ceiling = config.thresholds[m];
-		return ceiling !== null && exceeds(head[m], ceiling)
-			? [thresholdMessage({ metric: m, before: head[m], after: head[m], limit: ceiling })]
+		return ceiling !== null && head[m] > ceiling
+			? [thresholdMessage({ metric: m, value: head[m], ceiling })]
 			: [];
 	});
 }

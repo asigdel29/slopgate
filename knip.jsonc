@@ -4,6 +4,6 @@
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   // Fixtures are input to the analysers. No code imports them.
   "ignore": ["test/fixtures/**"],
-  // src/bin.ts finds these two by binary path at run time, not by import.
+  // src/tools.ts finds these two by binary path at run time, not by import.
   "ignoreDependencies": ["@ast-grep/cli", "jscpd"],
 }

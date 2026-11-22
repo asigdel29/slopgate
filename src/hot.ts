@@ -44,10 +44,7 @@ function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
  */
 export function findHotCallables(head: Callable[], base: Callable[]): HotCallable[] {
 	const baseGroups = byFileAndName(base);
-	const baseByName = Map.groupBy(
-		base.filter((c) => c.name !== null),
-		(c) => c.name as string,
-	);
+	const baseByName = Map.groupBy(base, (c) => c.name);
 	const movedFrom = (c: Callable): Callable | undefined => {
 		const sameName = c.name === null ? undefined : baseByName.get(c.name);
 		return sameName?.length === 1 ? sameName[0] : undefined;

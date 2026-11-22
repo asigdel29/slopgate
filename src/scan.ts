@@ -39,12 +39,12 @@ const BATCH_SIZE = 400;
  * Rewrite one rule file's text for another grammar: the `language:` line, and
  * a suffix on each `id:` so a re-targeted pack keeps unique ids.
  */
-export function retargetRuleText(source: string, targetLanguage: string, idSuffix: string): string {
+export function retargetRuleText(source: string, dialect: Dialect): string {
 	return source
 		.split("\n")
 		.map((line) => {
-			if (line.startsWith("language:")) return `language: ${targetLanguage}`;
-			if (line.startsWith("id:")) return `${line.trimEnd()}${idSuffix}`;
+			if (line.startsWith("language:")) return `language: ${dialect.astGrepLanguage}`;
+			if (line.startsWith("id:")) return `${line.trimEnd()}${dialect.idSuffix}`;
 			return line;
 		})
 		.join("\n");
@@ -100,11 +100,7 @@ export async function dialectRuleDir({
 	if (dialect.idSuffix === "" && first !== undefined) return dirname(first);
 	await mkdir(destDir, { recursive: true });
 	for (const file of files) {
-		const text = retargetRuleText(
-			await Bun.file(file).text(),
-			dialect.astGrepLanguage,
-			dialect.idSuffix,
-		);
+		const text = retargetRuleText(await Bun.file(file).text(), dialect);
 		await writeFile(join(destDir, basename(file)), text, "utf8");
 	}
 	return destDir;
@@ -130,7 +126,10 @@ type RuleSource = { kind: "rule" | "project"; path: string };
  * There is no `--lang` flag: `ast-grep scan` takes the language from each rule's
  * `language:` field, which is what dialectRuleDir above changes.
  */
-export async function scan(source: RuleSource, files: string[], cwd: string): Promise<Match[]> {
+/** One scan: the rules to run, the files to scan, and the folder they are relative to. */
+type ScanInput = { source: RuleSource; files: string[]; cwd: string };
+
+export async function scan({ source, files, cwd }: ScanInput): Promise<Match[]> {
 	if (files.length === 0) return [];
 
 	const tool = resolveTool("ast-grep", cwd);
@@ -141,8 +140,7 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 		const batch = files.slice(i, i + BATCH_SIZE);
 		const { stdout, stderr } = await runTool({
 			...tool,
-			args: ["scan", flag, source.path, "--json", ...batch.map((f) => `${cwd}/${f}`)],
-			name: "ast-grep",
+			args: ["scan", flag, source.path, "--json=compact", ...batch.map((f) => `${cwd}/${f}`)],
 			cwd,
 		});
 
@@ -170,7 +168,17 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 				{ cause: err },
 			);
 		}
-		for (const m of parsed) matches.push({ ...m, file: relativeTo(cwd, m.file) });
+		// Keep only the fields the engine reads. ast-grep also returns labels,
+		// lines and messages, which would roughly double the memory held.
+		for (const m of parsed) {
+			matches.push({
+				ruleId: m.ruleId,
+				file: relativeTo(cwd, m.file),
+				range: m.range,
+				text: m.text,
+				metaVariables: m.metaVariables,
+			});
+		}
 	}
 
 	return matches;

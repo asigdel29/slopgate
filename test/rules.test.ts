@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Callable } from "../src/config.ts";
+import type { Callable, Language } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
 import { configFor } from "./helpers.ts";
 
@@ -32,12 +32,12 @@ function byStartLine(callables: Callable[]): Map<number, Callable> {
  */
 const cache = new Map<string, Promise<Awaited<ReturnType<typeof runMeasure>>>>();
 
-async function runMeasure(language: "typescript" | "swift", file: string) {
+async function runMeasure(language: Language, file: string) {
 	const { callables, metrics } = await measure(configFor(language, [file]), FIXTURES);
 	return { callables, metrics, byLine: byStartLine(callables) };
 }
 
-function measureFixture(language: "typescript" | "swift", file: string) {
+function measureFixture(language: Language, file: string) {
 	const key = `${language}:${file}`;
 	const existing = cache.get(key);
 	if (existing) return existing;

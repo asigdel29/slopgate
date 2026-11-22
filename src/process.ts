@@ -23,7 +23,7 @@ export class ToolExitError extends Error {
 	/** The tool's exit code, or null when a signal stopped it. */
 	readonly exitCode: number | null;
 
-	/** A failure of `tool` with `exitCode`, and the tool's own output as the detail. */
+	/** A failure with `message`, which carries the tool's own output, and its exit code. */
 	constructor(message: string, exitCode: number | null) {
 		super(message);
 		this.exitCode = exitCode;

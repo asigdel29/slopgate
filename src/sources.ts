@@ -74,7 +74,7 @@ export async function resolveFiles(cfg: LanguageConfig, root: string): Promise<s
 export function classifyLines(
 	contents: Buffer,
 	commentSpans: Array<[number, number]>,
-): Set<number> {
+): { sourceLines: Set<number>; lineCount: number } {
 	// Byte-indexed mask of comment coverage. One pass over the spans beats a
 	// per-byte search through them, and files here are small enough that the
 	// allocation is irrelevant.
@@ -104,7 +104,8 @@ export function classifyLines(
 	// A final line with no trailing newline still counts.
 	if (lineHasCode) sourceLines.add(line);
 
-	return sourceLines;
+	// `line` is the LF count, so line + 1 is the line count as jscpd sees it.
+	return { sourceLines, lineCount: line + 1 };
 }
 
 /**
@@ -173,8 +174,7 @@ export async function measureFiles({
 				);
 			}
 
-			const sourceLines = classifyLines(contents, commentsByFile.get(file) ?? []);
-			const lineCount = contents.filter((byte) => byte === LF).length + 1;
+			const { sourceLines, lineCount } = classifyLines(contents, commentsByFile.get(file) ?? []);
 			return { file, language, loc: sourceLines.size, lineCount, sourceLines };
 		}),
 	);

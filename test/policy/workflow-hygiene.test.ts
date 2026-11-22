@@ -9,18 +9,13 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PACKAGE_DIR as ROOT } from "../../src/config.ts";
+import { isRecord, PACKAGE_DIR as ROOT } from "../../src/config.ts";
 
 /** Every workflow file this repository runs or ships, relative to the root. */
 const WORKFLOWS = [
 	...readdirSync(join(ROOT, ".github/workflows")).map((f) => `.github/workflows/${f}`),
 	...readdirSync(join(ROOT, "examples")).map((f) => `examples/${f}`),
 ].filter((f) => f.endsWith(".yml"));
-
-/** Narrows an unknown value to a plain object. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 describe("workflow hygiene", () => {
 	test("there are workflows to check", () => {

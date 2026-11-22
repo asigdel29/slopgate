@@ -6,6 +6,7 @@
 // built. Nothing here ever mutates the caller's checkout.
 
 import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 import { runTool, ToolExitError, withTempDir } from "./process.ts";
 
 /**
@@ -47,19 +48,14 @@ export async function resolveBase(ref: string, root: string): Promise<string> {
 }
 
 /**
- * The path of `root` inside its repository, such as `packages/app/`, or an
- * empty string at the top. A worktree checks out the whole repository, so the
- * base must be measured at this same path, or the include globs would match a
- * different tree than on the head.
- */
-export function repoPrefix(root: string): Promise<string> {
-	return git(["rev-parse", "--show-prefix"], root);
-}
-
-/**
  * Run `fn` on a throwaway detached worktree of `ref`, and remove the worktree
  * afterwards, also when `fn` throws. The files must be on disk for the
  * analysers to parse them, so the checkout is a real one.
+ *
+ * `fn` gets the worktree path that matches `root`. A worktree checks out the
+ * whole repository, so when `root` is a subfolder such as `packages/app`, the
+ * base must be measured at that same subfolder, or the include globs would
+ * match a different tree than on the head.
  */
 export async function withWorktree<T>(
 	{ ref, root }: { ref: string; root: string },
@@ -68,8 +64,11 @@ export async function withWorktree<T>(
 	return withTempDir("slop-base-", async (path) => {
 		// `git worktree add` accepts the directory because it is empty.
 		await git(["worktree", "add", "--detach", "--quiet", path, ref], root);
+		// resolve(), not join(): the prefix ends in "/", and a trailing slash
+		// would no longer match the root-relative paths the analysers report.
+		const prefix = await git(["rev-parse", "--show-prefix"], root);
 		try {
-			return await fn(path);
+			return await fn(resolve(path, prefix));
 		} finally {
 			// Prune the registration too; removing the directory alone would leave
 			// a stale entry in .git/worktrees that `git worktree list` keeps showing.

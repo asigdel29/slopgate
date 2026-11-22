@@ -7,15 +7,24 @@
 // build. A gate that a typo can disable is worse than no gate, because it looks
 // like one.
 
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
 
+/** One folder for every config file this suite writes, removed at the end. */
+const dir = await mkdtemp(join(tmpdir(), "slop-cfg-"));
+let written = 0;
+
+afterAll(async () => {
+	await rm(dir, { recursive: true, force: true });
+});
+
+/** Write `contents` to a new config file and return its path. */
 async function configFile(contents: unknown): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "slop-cfg-"));
-	const path = join(dir, "slop.config.json");
+	written += 1;
+	const path = join(dir, `slop.config.${written}.json`);
 	await writeFile(path, typeof contents === "string" ? contents : JSON.stringify(contents), "utf8");
 	return path;
 }

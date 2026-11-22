@@ -84,7 +84,7 @@ describe("computeVerbosity (Eq. 4)", () => {
 		const flagged = new Set(["a.ts:1", "a.ts:2"]);
 		const clones = new Set(["a.ts:2", "a.ts:3"]);
 
-		const result = computeVerbosity(flagged, clones, 10);
+		const result = computeVerbosity({ flaggedLines: flagged, cloneLines: clones, loc: 10 });
 
 		// Union is {1, 2, 3} — the shared line 2 is not double counted.
 		expect(result.unionLines).toBe(3);
@@ -95,27 +95,40 @@ describe("computeVerbosity (Eq. 4)", () => {
 	});
 
 	test("keys are per file, so equal line numbers in different files stay distinct", () => {
-		const result = computeVerbosity(new Set(["a.ts:7"]), new Set(["b.ts:7"]), 10);
+		const result = computeVerbosity({
+			flaggedLines: new Set(["a.ts:7"]),
+			cloneLines: new Set(["b.ts:7"]),
+			loc: 10,
+		});
 		expect(result.unionLines).toBe(2);
 	});
 
 	test("is bounded by 1 even when every line is both flagged and cloned", () => {
 		const every = new Set(["a.ts:0", "a.ts:1", "a.ts:2"]);
-		const result = computeVerbosity(every, new Set(every), 3);
+		const result = computeVerbosity({ flaggedLines: every, cloneLines: new Set(every), loc: 3 });
 		expect(result.verbosity).toBe(1);
 	});
 
 	test("an empty codebase is 0, not NaN", () => {
-		expect(computeVerbosity(new Set(), new Set(), 0).verbosity).toBe(0);
+		expect(
+			computeVerbosity({ flaggedLines: new Set(), cloneLines: new Set(), loc: 0 }).verbosity,
+		).toBe(0);
 	});
 });
 
 /** The source-line numbers of `source`, in order, with `comments` as comment spans. */
 function lines(source: string, comments: Array<[number, number]> = []): number[] {
-	return [...classifyLines(Buffer.from(source, "utf8"), comments)].toSorted((a, b) => a - b);
+	return [...classifyLines(Buffer.from(source, "utf8"), comments).sourceLines].toSorted(
+		(a, b) => a - b,
+	);
 }
 
 describe("classifyLines", () => {
+	test("counts every line as jscpd does, blank and comment lines included", () => {
+		expect(classifyLines(Buffer.from("a\n\n// c\n", "utf8"), []).lineCount).toBe(4);
+		expect(classifyLines(Buffer.from("a", "utf8"), []).lineCount).toBe(1);
+	});
+
 	test("blank and whitespace-only lines are not source lines", () => {
 		expect(lines("a\n\n   \n\tb\n")).toEqual([0, 3]);
 	});

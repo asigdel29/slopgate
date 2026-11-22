@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { RULE_SUFFIX, ruleLink } from "../../src/init.ts";
-import { PACKAGE_DIR } from "../../src/config.ts";
+import { isRecord, PACKAGE_DIR } from "../../src/config.ts";
 
 const INSTRUCTIONS = join(PACKAGE_DIR, ".github/instructions");
 const RULES = join(PACKAGE_DIR, ".claude/rules");
@@ -25,9 +25,9 @@ const NAMES = readdirSync(INSTRUCTIONS)
 function frontmatter(name: string): { applyTo: string[]; paths: string[] } {
 	const text = readFileSync(join(INSTRUCTIONS, name + RULE_SUFFIX), "utf8");
 	const parsed: unknown = Bun.YAML.parse(/^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? "");
-	const fields = typeof parsed === "object" && parsed !== null ? parsed : {};
-	const applyTo = "applyTo" in fields && typeof fields.applyTo === "string" ? fields.applyTo : "";
-	const paths = "paths" in fields && Array.isArray(fields.paths) ? fields.paths.map(String) : [];
+	const fields = isRecord(parsed) ? parsed : {};
+	const applyTo = typeof fields.applyTo === "string" ? fields.applyTo : "";
+	const paths = Array.isArray(fields.paths) ? fields.paths.map(String) : [];
 	return { applyTo: applyTo === "" ? [] : applyTo.split(","), paths };
 }
 

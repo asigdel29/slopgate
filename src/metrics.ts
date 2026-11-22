@@ -10,17 +10,14 @@
 // Reference: arXiv:2603.24755, cross-checked against upstream's
 // src/slop_code/metrics/checkpoint/mass.py.
 
-import type { Callable } from "./config.ts";
+import type { Callable, SlopMetrics } from "./config.ts";
 import { HIGH_COMPLEXITY_CUTOFF } from "./config.ts";
 
-/** Eq. 3 and the sums and counts behind it. */
-type ErosionResult = {
-	erosion: number;
-	totalMass: number;
-	highComplexityMass: number;
-	callables: number;
-	highComplexityCallables: number;
-};
+/** Eq. 3 and the sums and counts behind it, as the JSON `detail` names them. */
+type ErosionResult = { erosion: number } & Pick<
+	SlopMetrics["detail"],
+	"callables" | "highComplexityCallables" | "totalMass" | "highComplexityMass"
+>;
 
 /**
  * Whether a callable counts toward the high-complexity share of erosion. The
@@ -69,21 +66,18 @@ export function computeErosion(callables: Callable[]): ErosionResult {
 		// Zero is the honest answer and matches upstream returning 0.0 for an
 		// empty symbol set.
 		erosion: totalMass > 0 ? highComplexityMass / totalMass : 0,
-		totalMass,
-		highComplexityMass,
 		callables: counted,
 		highComplexityCallables: highCount,
+		totalMass,
+		highComplexityMass,
 	};
 }
 
-/** Eq. 4 and the line counts behind it. */
-type VerbosityResult = {
-	verbosity: number;
-	flaggedLines: number;
-	cloneLines: number;
-	unionLines: number;
-	loc: number;
-};
+/** Eq. 4 and the line counts behind it, as the JSON `detail` names them. */
+type VerbosityResult = { verbosity: number } & Pick<
+	SlopMetrics["detail"],
+	"loc" | "flaggedLines" | "cloneLines" | "unionLines"
+>;
 
 /**
  * Eq. 4 — the fraction of source lines that are either rule-flagged or
@@ -97,19 +91,21 @@ type VerbosityResult = {
  * Both sets are keyed `file:line`, so dedup is per physical line rather than per
  * line number — two files sharing a line number stay distinct.
  */
-export function computeVerbosity(
-	flaggedLines: Set<string>,
-	cloneLines: Set<string>,
-	loc: number,
-): VerbosityResult {
-	const union = new Set<string>(flaggedLines);
-	for (const line of cloneLines) union.add(line);
-
+export function computeVerbosity({
+	flaggedLines,
+	cloneLines,
+	loc,
+}: {
+	flaggedLines: Set<string>;
+	cloneLines: Set<string>;
+	loc: number;
+}): VerbosityResult {
+	const union = flaggedLines.union(cloneLines);
 	return {
 		verbosity: loc > 0 ? union.size / loc : 0,
+		loc,
 		flaggedLines: flaggedLines.size,
 		cloneLines: cloneLines.size,
 		unionLines: union.size,
-		loc,
 	};
 }

@@ -15,6 +15,7 @@
 import type { Callable, Language } from "./config.ts";
 import { WAIVER } from "./config.ts";
 import type { Match } from "./scan.ts";
+import { sourceLineKeys } from "./sources.ts";
 
 type Span = {
 	startByte: number;
@@ -44,15 +45,6 @@ function size(s: Span): number {
  */
 function innermost<T extends Span>(bySizeAsc: T[], byte: number): T | undefined {
 	return bySizeAsc.find((s) => byte >= s.startByte && byte < s.endByte);
-}
-
-/** Count the file's source lines that fall inside `[startLine, endLine]`. */
-function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number): number {
-	let count = 0;
-	for (let line = startLine; line <= endLine; line++) {
-		if (sourceLines.has(line)) count++;
-	}
-	return count;
 }
 
 /** What a structural match means to the engine. */
@@ -164,11 +156,9 @@ function callablesInFile({ file, language, matches, sourceLines }: FileScan): Ca
 	const statements = ofKind("decision")
 		.filter((m) => MULTI_CLAUSE_STATEMENT_RULE.test(m.ruleId))
 		.map(toSpan);
-	for (const [start, extra] of extraConditionComplexity(
-		statements,
-		ofKind("binding").map(toSpan),
-	)) {
-		addDecisions(start, extra);
+	const bindings = ofKind("binding").map(toSpan);
+	for (const [start, extra] of extraConditionComplexity(statements, bindings)) {
+		if (extra > 0) addDecisions(start, extra);
 	}
 
 	const names = namesByStart(ofKind("callable"), ofKind("name"));
@@ -185,7 +175,8 @@ function callablesInFile({ file, language, matches, sourceLines }: FileScan): Ca
 		startLine: span.startLine,
 		endLine: span.endLine,
 		complexity: complexity.get(span) ?? 1,
-		sloc: slocWithin(sourceLines, span.startLine, span.endLine),
+		sloc: sourceLineKeys({ file, sourceLines, startLine: span.startLine, endLine: span.endLine })
+			.length,
 		name: names.get(span.startByte) ?? null,
 		waived: waiverEndLines.has(span.startLine - 1),
 	}));

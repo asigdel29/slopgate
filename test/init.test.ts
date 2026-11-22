@@ -5,12 +5,14 @@
 // no rule at all. One test runs the real CLI entry point, to prove that `init`
 // reaches runInit.
 
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { lstat, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ruleLink, runInit } from "../src/init.ts";
 import { PACKAGE_DIR } from "../src/config.ts";
+import { ruleLink, runInit } from "../src/init.ts";
+import { withTempDir } from "../src/process.ts";
+import { captureConsole } from "./helpers.ts";
 
 const target = await mkdtemp(join(tmpdir(), "slopgate-init-"));
 
@@ -18,15 +20,11 @@ afterAll(async () => {
 	await rm(target, { recursive: true, force: true });
 });
 
-/** Runs init in this process on the temp target and returns what it printed. */
-async function init(...args: string[]): Promise<string> {
-	const log = spyOn(console, "log").mockImplementation(() => {});
-	try {
-		await runInit(["--root", target, ...args]);
-		return log.mock.calls.map((call) => String(call[0])).join("\n");
-	} finally {
-		log.mockRestore();
-	}
+/** Runs init in this process with `argv` and returns what it printed. Throws what init throws. */
+async function init(...argv: string[]): Promise<string> {
+	const run = await captureConsole(() => runInit(argv));
+	if (!run.ok) throw run.thrown;
+	return run.out;
 }
 
 /** Every path under the package's .claude folder, to prove that nothing was removed. */
@@ -36,7 +34,7 @@ function listKit(): Promise<string[]> {
 
 describe("slopgate init", () => {
 	test("writes the config, the workflow, the rules, the skills and the rule links", async () => {
-		const out = await init();
+		const out = await init("--root", target);
 		expect(out).not.toContain("skipped");
 		for (const path of [
 			"slop.config.json",
@@ -56,45 +54,36 @@ describe("slopgate init", () => {
 	test("a second run skips every path and keeps a local edit", async () => {
 		const config = join(target, "slop.config.json");
 		await writeFile(config, "{}\n");
-		const out = await init();
+		const out = await init("--root", target);
 		expect(out).toContain("skipped  slop.config.json");
 		expect(out).not.toContain("created");
 		expect(await readFile(config, "utf8")).toBe("{}\n");
 	});
 
-	test("--help prints the usage and writes nothing", async () => {
-		const empty = await mkdtemp(join(tmpdir(), "slopgate-init-help-"));
-		try {
-			const log = spyOn(console, "log").mockImplementation(() => {});
-			await runInit(["--root", empty, "--help"]);
-			expect(String(log.mock.calls[0]?.[0])).toContain("slopgate init [--root <dir>]");
-			log.mockRestore();
+	test("--help prints the usage, even next to a bad flag, and writes nothing", async () => {
+		await withTempDir("slopgate-init-help-", async (empty) => {
+			expect(await init("--root", empty, "--bogus", "--help")).toContain(
+				"slopgate init [--root <dir>]",
+			);
 			expect(await readdir(empty)).toEqual([]);
-		} finally {
-			await rm(empty, { recursive: true, force: true });
-		}
+		});
 	});
 
 	test("an unknown argument fails and writes nothing", async () => {
-		const empty = await mkdtemp(join(tmpdir(), "slopgate-init-bad-"));
-		try {
-			await expect(runInit(["--root", empty, "--bogus"])).rejects.toThrow("--bogus");
+		await withTempDir("slopgate-init-bad-", async (empty) => {
+			await expect(init("--root", empty, "--bogus")).rejects.toThrow("--bogus");
 			expect(await readdir(empty)).toEqual([]);
-		} finally {
-			await rm(empty, { recursive: true, force: true });
-		}
+		});
 	});
 
 	test("refuses to run on the slopgate package itself", async () => {
 		const before = await listKit();
-		await expect(runInit(["--root", PACKAGE_DIR, "--force"])).rejects.toThrow(
-			"slopgate package itself",
-		);
+		await expect(init("--root", PACKAGE_DIR, "--force")).rejects.toThrow("slopgate package itself");
 		expect((await listKit()).toSorted()).toEqual(before.toSorted());
 	});
 
 	test("--force overwrites a local edit and replaces each link", async () => {
-		const out = await init("--force");
+		const out = await init("--root", target, "--force");
 		expect(out).not.toContain("skipped");
 		expect(await readFile(join(target, "slop.config.json"), "utf8")).toContain("maxDelta");
 		expect((await lstat(join(target, ".claude/rules/comments.md"))).isSymbolicLink()).toBe(true);
@@ -102,8 +91,7 @@ describe("slopgate init", () => {
 
 	test("the CLI routes the init command to runInit", async () => {
 		const cli = join(PACKAGE_DIR, "bin/slopgate.ts");
-		const proc = Bun.spawn(["bun", cli, "init", "--root", target], { stdout: "pipe" });
-		expect(await proc.exited).toBe(0);
-		expect(await new Response(proc.stdout).text()).toContain("Next steps");
+		const run = await Bun.$`bun ${cli} init --root ${target}`.quiet();
+		expect(run.stdout.toString()).toContain("Next steps");
 	});
 });

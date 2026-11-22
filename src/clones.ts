@@ -39,7 +39,11 @@ export async function findCloneLines(
 	root: string,
 ): Promise<Set<string>> {
 	const cloneLines = new Set<string>();
-	if (measurements.length === 0) return cloneLines;
+	// jscpd skips each file shorter than --min-lines, and when it skips them all
+	// it exits 0 and writes no report. Leave those files out here instead, so
+	// a missing report is always a fault. The result is the same.
+	const eligible = measurements.filter((m) => m.lineCount >= MIN_LINES);
+	if (eligible.length === 0) return cloneLines;
 
 	const report = await withTempDir("slop-jscpd-", async (reportDir) => {
 		// The whole file list goes in one invocation, deliberately unbatched:
@@ -50,7 +54,7 @@ export async function findCloneLines(
 		await runTool({
 			...resolveTool("jscpd", root),
 			args: [
-				...measurements.map((m) => m.file),
+				...eligible.map((m) => m.file),
 				"--reporters",
 				"json",
 				"--output",
@@ -61,19 +65,10 @@ export async function findCloneLines(
 				String(MIN_TOKENS),
 				"--silent",
 			],
-			name: "jscpd",
 			cwd: root,
 		});
 		const path = join(reportDir, "jscpd-report.json");
-		// jscpd skips each file shorter than --min-lines, and when it skips them
-		// all it returns before any reporter runs: exit 0 and no report. That case
-		// is zero clones. A missing report when some file was long enough is a
-		// fault, because jscpd then had input and wrote nothing.
-		const anyEligible = measurements.some((m) => m.lineCount >= MIN_LINES);
-		const text = await readFile(path, "utf8").catch((err: NodeJS.ErrnoException) => {
-			if (err.code === "ENOENT" && !anyEligible) return '{"duplicates":[]}';
-			throw err;
-		});
+		const text = await readFile(path, "utf8");
 		try {
 			return JSON.parse(text) as JscpdReport;
 		} catch (err) {

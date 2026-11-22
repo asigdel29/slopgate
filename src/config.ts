@@ -186,16 +186,20 @@ const CONFIG_KEYS = [
 ];
 
 /** Narrows an unknown JSON value to a plain object. */
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** One line for each key of `section` that is not in `allowed`, named by its full path. */
-function unknownKeys(
-	path: string,
-	section: Record<string, unknown>,
-	allowed: readonly string[],
-): string[] {
+function unknownKeys({
+	path,
+	section,
+	allowed,
+}: {
+	path: string;
+	section: Record<string, unknown>;
+	allowed: readonly string[];
+}): string[] {
 	return Object.keys(section)
 		.filter((key) => !allowed.includes(key))
 		.map((key) => `unknown key \`${path}${key}\` (allowed: ${allowed.join(", ")})`);
@@ -213,7 +217,11 @@ function languageEntryProblems(name: string, language: unknown): string[] {
 	}
 	if (!isRecord(language)) return [`languages.${name} must be an object with \`include\``];
 	return [
-		...unknownKeys(`languages.${name}.`, language, ["include", "exclude"]),
+		...unknownKeys({
+			path: `languages.${name}.`,
+			section: language,
+			allowed: ["include", "exclude"],
+		}),
 		...(isStringArray(language.include) && language.include.length > 0
 			? []
 			: [`languages.${name}.include must be a non-empty array of globs`]),
@@ -241,7 +249,7 @@ function limitProblems(group: "maxDelta" | "thresholds", section: unknown): stri
 		const got = value === undefined ? "undefined — is the key missing or misspelt?" : typeof value;
 		return [`${group}.${metric} must be a number or null (explicitly disabled), got ${got}`];
 	});
-	return [...unknownKeys(`${group}.`, section, METRICS), ...values];
+	return [...unknownKeys({ path: `${group}.`, section, allowed: METRICS }), ...values];
 }
 
 /**
@@ -274,7 +282,7 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 	const config = isRecord(parsed) ? parsed : {};
 
 	const problems = [
-		...unknownKeys("", config, CONFIG_KEYS),
+		...unknownKeys({ path: "", section: config, allowed: CONFIG_KEYS }),
 		...languageProblems(config.languages),
 		...limitProblems("maxDelta", config.maxDelta),
 		...limitProblems("thresholds", config.thresholds),

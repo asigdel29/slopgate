@@ -37,7 +37,7 @@ async function loadRulePackVersion(rulesDir: string): Promise<number> {
  * for the language has no rules for it yet, so verbosity counts clone lines
  * only, which is a correct half of Eq. 4. Any other read error is a fault.
  */
-async function rulePackFiles(rulesDir: string, language: Language): Promise<string[]> {
+export async function rulePackFiles(rulesDir: string, language: Language): Promise<string[]> {
 	const dir = join(rulesDir, language);
 	try {
 		return (await readdir(dir)).filter((f) => f.endsWith(".yml")).map((f) => join(dir, f));
@@ -82,9 +82,10 @@ type DialectResult = {
  * pack that would be hundreds of spawns.
  */
 async function scanRulePack(
-	run: DialectRun & { rulesDir: string },
+	run: DialectRun,
 	sourceLinesByFile: Map<string, Set<number>>,
 ): Promise<string[]> {
+	if (run.rulesDir === null) return [];
 	const authored = await rulePackFiles(run.rulesDir, run.language);
 	if (authored.length === 0) return [];
 	const ruleDir = await dialectRuleDir({
@@ -100,7 +101,11 @@ async function scanRulePack(
 	const sgconfig = join(run.workspace, `sgconfig-${run.dialect.astGrepLanguage}.yml`);
 	await writeFile(sgconfig, `ruleDirs:\n  - ${ruleDir}\n`, "utf8");
 
-	const matches = await scan({ kind: "project", path: sgconfig }, run.files, run.root);
+	const matches = await scan({
+		source: { kind: "project", path: sgconfig },
+		files: run.files,
+		cwd: run.root,
+	});
 	// A rule can span several lines; every source line it covers is flagged,
 	// which is what "flagged lines" means in Eq. 4.
 	return matches.flatMap((match) =>
@@ -126,13 +131,21 @@ async function measureDialect(run: DialectRun): Promise<DialectResult> {
 	});
 	const structural = join(structuralDir, basename(authored));
 
-	const matches = await scan({ kind: "rule", path: structural }, run.files, run.root);
-	const commentsByFile = new Map<string, Array<[number, number]>>();
-	for (const m of matches.filter((match) => ruleKind(match.ruleId) === "comment")) {
-		const spans = commentsByFile.get(m.file) ?? [];
-		spans.push([m.range.byteOffset.start, m.range.byteOffset.end]);
-		commentsByFile.set(m.file, spans);
-	}
+	const matches = await scan({
+		source: { kind: "rule", path: structural },
+		files: run.files,
+		cwd: run.root,
+	});
+	const comments = Map.groupBy(
+		matches.filter((m) => ruleKind(m.ruleId) === "comment"),
+		(m) => m.file,
+	);
+	const commentsByFile = new Map(
+		[...comments].map(([file, spans]) => [
+			file,
+			spans.map((m): [number, number] => [m.range.byteOffset.start, m.range.byteOffset.end]),
+		]),
+	);
 	const measurements = await measureFiles({
 		files: run.files,
 		language: run.language,
@@ -143,10 +156,7 @@ async function measureDialect(run: DialectRun): Promise<DialectResult> {
 	return {
 		measurements,
 		callables: buildCallables({ matches, sourceLinesByFile, language: run.language }),
-		flagged:
-			run.rulesDir === null
-				? []
-				: await scanRulePack({ ...run, rulesDir: run.rulesDir }, sourceLinesByFile),
+		flagged: await scanRulePack(run, sourceLinesByFile),
 	};
 }
 
@@ -205,26 +215,22 @@ export async function measure(config: SlopConfig, root: string): Promise<Measure
 	// ast-grep returns matches in a varied order, and a float sum depends on its
 	// order. Sorting first makes two runs on one tree give identical numbers.
 	const callables = parts.flatMap((p) => p.callables).toSorted(byPosition);
-	const erosion = computeErosion(callables);
-	const cloneLines = await findCloneLines(measurements, root);
-	const loc = measurements.reduce((sum, m) => sum + m.loc, 0);
-	const verbosity = computeVerbosity(new Set(parts.flatMap((p) => p.flagged)), cloneLines, loc);
+	const { erosion, ...erosionDetail } = computeErosion(callables);
+	const { verbosity, ...verbosityDetail } = computeVerbosity({
+		flaggedLines: new Set(parts.flatMap((p) => p.flagged)),
+		cloneLines: await findCloneLines(measurements, root),
+		loc: measurements.reduce((sum, m) => sum + m.loc, 0),
+	});
 
 	return {
 		callables,
 		metrics: {
-			erosion: erosion.erosion,
-			verbosity: verbosity.verbosity,
+			erosion,
+			verbosity,
 			detail: {
 				files: measurements.length,
-				callables: erosion.callables,
-				highComplexityCallables: erosion.highComplexityCallables,
-				totalMass: erosion.totalMass,
-				highComplexityMass: erosion.highComplexityMass,
-				loc: verbosity.loc,
-				flaggedLines: verbosity.flaggedLines,
-				cloneLines: verbosity.cloneLines,
-				unionLines: verbosity.unionLines,
+				...erosionDetail,
+				...verbosityDetail,
 				rulePackVersion,
 			},
 		},

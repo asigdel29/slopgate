@@ -70,6 +70,8 @@ function astGrepPlatformBinary(fromDirs: string[]): string | null {
 
 /** A resolved tool: what to run, and what to say if it cannot be started. */
 export type ResolvedTool = {
+	/** The tool's name, for messages. */
+	name: ToolName;
 	/** The path or command to spawn. */
 	bin: string;
 	/** Every place that was tried, so a missing tool names them all. */
@@ -91,8 +93,10 @@ const resolved = new Map<ToolName, ResolvedTool>();
  */
 export function resolveTool(tool: ToolName, root: string): ResolvedTool {
 	const override = process.env[ENV_OVERRIDE[tool]];
-	if (override)
-		return { bin: override, missingHint: `$${ENV_OVERRIDE[tool]} is set to ${override}.` };
+	if (override) {
+		const missingHint = `$${ENV_OVERRIDE[tool]} is set to ${override}.`;
+		return { name: tool, bin: override, missingHint };
+	}
 	const known = resolved.get(tool);
 	if (known) return known;
 
@@ -105,7 +109,7 @@ export function resolveTool(tool: ToolName, root: string): ResolvedTool {
 	const missingHint =
 		`Tried $${ENV_OVERRIDE[tool]}, ${candidates.join(", ")}, and PATH. ` +
 		`Install ${tool}, or set ${ENV_OVERRIDE[tool]} to its path.`;
-	const result = { bin: candidates.find(existsSync) ?? tool, missingHint };
+	const result = { name: tool, bin: candidates.find(existsSync) ?? tool, missingHint };
 	resolved.set(tool, result);
 	return result;
 }

@@ -7,11 +7,11 @@
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
-import type { SlopConfig, SlopMetrics } from "./config.ts";
+import type { SlopConfig } from "./config.ts";
 import { decide } from "./gate.ts";
-import { repoPrefix, resolveBase, withWorktree } from "./git.ts";
+import type { GateInput } from "./gate.ts";
+import { resolveBase, withWorktree } from "./git.ts";
 import { findHotCallables } from "./hot.ts";
-import type { HotCallable } from "./hot.ts";
 import { measure } from "./measure.ts";
 import type { Measurement } from "./measure.ts";
 import { formatReport } from "./report.ts";
@@ -60,8 +60,6 @@ export function parseOptions(argv: string[]): Options {
 			report: { type: "boolean", default: false },
 			json: { type: "boolean", default: false },
 			"json-out": { type: "string" },
-			// Declared so that parsing accepts it; runGate checks for it first.
-			help: { type: "boolean", short: "h" },
 		},
 	});
 	const root = resolve(values.root);
@@ -75,36 +73,23 @@ export function parseOptions(argv: string[]): Options {
 	};
 }
 
-/**
- * Measure the merge base of `baseRef` in a throwaway worktree, at the same path
- * inside the repository as `root`. The base tree is measured with THIS
- * revision's engine and config, so a delta only ever reflects source changes,
- * never a change to how the measurement works.
- */
-async function measureBase(
-	config: SlopConfig,
-	{ root, baseRef }: { root: string; baseRef: string },
-): Promise<Measurement> {
-	const ref = await resolveBase(baseRef, root);
-	const prefix = await repoPrefix(root);
-	return withWorktree({ ref, root }, (path) => measure(config, join(path, prefix)));
-}
-
-/** What one run measured. */
-type Run = {
+/** What one run measured: the head, plus the base and the ratchet with --base. */
+type Run = Pick<GateInput, "base" | "hot"> & {
 	/** The tree under test, with its callables. */
 	head: Measurement;
-	/** The merge base's metrics, or null without --base. */
-	base: SlopMetrics | null;
-	/** The callables that break the ratchet, or null when the rule is off or there is no base. */
-	hot: HotCallable[] | null;
 };
 
-/** Measure everything this run needs: the head, then the base and the ratchet if asked. */
-async function measureRun(config: SlopConfig, options: Options): Promise<Run> {
-	const head = await measure(config, options.root);
-	if (options.baseRef === null) return { head, base: null, hot: null };
-	const base = await measureBase(config, { root: options.root, baseRef: options.baseRef });
+/**
+ * Measure everything this run needs: the head, then, with --base, the merge
+ * base in a throwaway worktree and the hot-callable ratchet. The base tree is
+ * measured with THIS revision's engine and config, so a delta only ever
+ * reflects source changes, never a change to how the measurement works.
+ */
+async function measureRun(config: SlopConfig, { root, baseRef }: Options): Promise<Run> {
+	const head = await measure(config, root);
+	if (baseRef === null) return { head, base: null, hot: null };
+	const ref = await resolveBase(baseRef, root);
+	const base = await withWorktree({ ref, root }, (baseRoot) => measure(config, baseRoot));
 	const hot = config.hotCallables ? findHotCallables(head.callables, base.callables) : null;
 	return { head, base: base.metrics, hot };
 }
@@ -129,7 +114,7 @@ export async function runGate(argv: string[]): Promise<number> {
 		console.log(json);
 		return 0;
 	}
-	console.log(formatReport(head.metrics, config, head.callables, base));
+	console.log(formatReport({ head, base, config }));
 	if (options.report) return 0;
 
 	const failures = decide({

@@ -79,7 +79,7 @@ describe("rule pack", () => {
 		"a matching rule contributes flagged lines to verbosity",
 		async () => {
 			const { metrics } = await measure(
-				configFor("typescript", ["typescript/complexity.ts"], 1),
+				configFor("typescript", ["typescript/complexity.ts"]),
 				FIXTURES,
 			);
 
@@ -95,10 +95,7 @@ describe("rule pack", () => {
 	test(
 		"the pack runs for Swift too",
 		async () => {
-			const { metrics } = await measure(
-				configFor("swift", ["swift/complexity.swift"], 1),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("swift", ["swift/complexity.swift"]), FIXTURES);
 			// branching() has exactly one guard statement.
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
@@ -111,10 +108,7 @@ describe("rule pack", () => {
 			// view.tsx has two ternaries. They only match if the authored
 			// `language: typescript` pack is re-targeted to the tsx grammar — the
 			// same dialect problem the structural rules have, on a second code path.
-			const { metrics } = await measure(
-				configFor("typescript", ["typescript/view.tsx"], 1),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("typescript", ["typescript/view.tsx"]), FIXTURES);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,
@@ -124,7 +118,7 @@ describe("rule pack", () => {
 		"verbosity stays bounded when rules and clones overlap",
 		async () => {
 			const { metrics } = await measure(
-				configFor("typescript", ["typescript/complexity.ts"], 1),
+				configFor("typescript", ["typescript/complexity.ts"]),
 				FIXTURES,
 			);
 			expect(metrics.verbosity).toBeLessThanOrEqual(1);
@@ -137,6 +131,9 @@ describe("rule pack", () => {
 	);
 });
 
+/** The re-targeted TypeScript dialect: the .tsx grammar. */
+const TSX = { astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" };
+
 describe("retargetRuleText", () => {
 	const authored = [
 		"id: dp-if",
@@ -147,7 +144,7 @@ describe("retargetRuleText", () => {
 	].join("\n");
 
 	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
-		const out = retargetRuleText(authored, "tsx", "-tsx");
+		const out = retargetRuleText(authored, TSX);
 		expect(out).toContain("id: dp-if-tsx");
 		expect(out).toContain("language: tsx");
 		// The rule body itself must be untouched.
@@ -158,7 +155,7 @@ describe("retargetRuleText", () => {
 		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join(
 			"\n",
 		);
-		const out = retargetRuleText(nested, "tsx", "-tsx");
+		const out = retargetRuleText(nested, TSX);
 		expect(out).toContain("    language: nope");
 		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);
 	});

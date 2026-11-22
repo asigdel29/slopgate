@@ -14,12 +14,10 @@
 // rather than silently shipping unverified.
 
 import { describe, expect, test } from "bun:test";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { resolveTool } from "../src/tools.ts";
-import { LANGUAGES, type Language } from "../src/config.ts";
-import { PACKAGE_DIR } from "../src/config.ts";
-import { runTool } from "../src/process.ts";
+import { basename, join, relative } from "node:path";
+import { LANGUAGES, PACKAGE_DIR, type Language } from "../src/config.ts";
+import { rulePackFiles } from "../src/measure.ts";
+import { scan } from "../src/scan.ts";
 
 const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "rules");
 const EXTENSION: Record<Language, string> = { typescript: "ts", swift: "swift" };
@@ -29,21 +27,17 @@ const MARKER = "// SLOP";
 
 type RuleFile = { language: Language; id: string; path: string };
 
+/** Every rule in the shipped pack, read the way the engine reads it. */
 async function allRules(): Promise<RuleFile[]> {
-	const rules: RuleFile[] = [];
-	for (const language of LANGUAGES) {
-		const dir = join(PACKAGE_DIR, "rules", language);
-		let entries: string[];
-		try {
-			entries = await readdir(dir);
-		} catch {
-			continue;
-		}
-		for (const entry of entries.filter((e) => e.endsWith(".yml")).toSorted()) {
-			rules.push({ language, id: entry.replace(/\.yml$/, ""), path: join(dir, entry) });
-		}
-	}
-	return rules;
+	const rulesDir = join(PACKAGE_DIR, "rules");
+	const perLanguage = await Promise.all(
+		LANGUAGES.map(async (language) =>
+			(await rulePackFiles(rulesDir, language))
+				.toSorted()
+				.map((path) => ({ language, id: basename(path, ".yml"), path })),
+		),
+	);
+	return perLanguage.flat();
 }
 
 /** Zero-based lines that carry the marker. */
@@ -54,16 +48,13 @@ function expectedLines(source: string): number[] {
 		.filter((index) => index >= 0);
 }
 
+/** Zero-based lines where the rule at `rulePath` fires in the fixture, through the engine's scan. */
 async function firedLines(rulePath: string, fixturePath: string): Promise<number[]> {
-	const { stdout } = await runTool({
-		...resolveTool("ast-grep", PACKAGE_DIR),
-		args: ["scan", "--rule", rulePath, "--json", fixturePath],
-		name: "ast-grep",
+	const matches = await scan({
+		source: { kind: "rule", path: rulePath },
+		files: [relative(PACKAGE_DIR, fixturePath)],
 		cwd: PACKAGE_DIR,
 	});
-	const trimmed = stdout.trim();
-	if (trimmed === "") return [];
-	const matches = JSON.parse(trimmed) as Array<{ range: { start: { line: number } } }>;
 	return [...new Set(matches.map((m) => m.range.start.line))].toSorted((a, b) => a - b);
 }
 

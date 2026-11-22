@@ -5,12 +5,13 @@
 // base, then fail on a new complex function, pass when a reviewed waiver
 // covers it, and exit 2 (not 1) when the run itself is broken.
 
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseOptions, runGate } from "../src/cli.ts";
 import { PACKAGE_DIR } from "../src/config.ts";
+import { captureConsole } from "./helpers.ts";
 
 describe("parseOptions", () => {
 	test("defaults to the current folder and its slop.config.json", () => {
@@ -53,17 +54,9 @@ const COMPLEX = `export function route(a: number): number {
 
 const repo = await mkdtemp(join(tmpdir(), "slopgate-cli-"));
 
-/** Run git in the temp repository with a fixed identity. */
+/** Run git in the temp repository with a fixed identity. Throws with git's message on failure. */
 async function git(...args: string[]): Promise<void> {
-	const proc = Bun.spawn(
-		["git", "-c", "user.email=test@example.com", "-c", "user.name=test", ...args],
-		{
-			cwd: repo,
-			stdout: "ignore",
-			stderr: "ignore",
-		},
-	);
-	expect(await proc.exited).toBe(0);
+	await Bun.$`git -c user.email=test@example.com -c user.name=test ${args}`.cwd(repo).quiet();
 }
 
 /** Commit `source` as src/route.ts on top of the base commit, replacing any earlier head. */
@@ -73,41 +66,29 @@ async function commitHead(source: string): Promise<void> {
 	await git("commit", "--quiet", "-am", "head");
 }
 
-/** Run the gate in this process and return its exit code and what it printed. */
+/** Run the gate in this process on the temp repository, and return its exit code and output. */
 async function gate(...args: string[]): Promise<{ code: number; out: string; err: string }> {
-	const log = spyOn(console, "log").mockImplementation(() => {});
-	const error = spyOn(console, "error").mockImplementation(() => {});
-	try {
-		const code = await runGate(["--root", repo, ...args]);
-		const text = (spy: typeof log) => spy.mock.calls.map((call) => String(call[0])).join("\n");
-		return { code, out: text(log), err: text(error) };
-	} finally {
-		log.mockRestore();
-		error.mockRestore();
-	}
+	const run = await captureConsole(() => runGate(["--root", repo, ...args]));
+	if (!run.ok) throw run.thrown;
+	return { code: run.value, out: run.out, err: run.err };
 }
 
 beforeAll(async () => {
 	await git("init", "--quiet");
-	await Bun.write(
-		join(repo, "slop.config.json"),
-		JSON.stringify({
-			languages: { typescript: { include: ["src/**/*.ts"] } },
-			maxDelta: { erosion: null, verbosity: null },
-			hotCallables: true,
-			thresholds: { erosion: null, verbosity: null },
-			calibratedAtRulePackVersion: 1,
-		}),
-	);
+	const config = JSON.stringify({
+		languages: { typescript: { include: ["src/**/*.ts"] } },
+		maxDelta: { erosion: null, verbosity: null },
+		hotCallables: true,
+		thresholds: { erosion: null, verbosity: null },
+		calibratedAtRulePackVersion: 1,
+	});
+	await Bun.write(join(repo, "slop.config.json"), config);
 	await Bun.write(
 		join(repo, "src/route.ts"),
 		"export function route(a: number): number {\n\treturn a;\n}\n",
 	);
 	// A package in a subfolder, with its own config, for --root inside a repository.
-	await Bun.write(
-		join(repo, "pkg/slop.config.json"),
-		await Bun.file(join(repo, "slop.config.json")).text(),
-	);
+	await Bun.write(join(repo, "pkg/slop.config.json"), config);
 	await Bun.write(join(repo, "pkg/src/one.ts"), "export const one = 1;\n");
 	await git("add", ".");
 	await git("commit", "--quiet", "-m", "base");
@@ -151,7 +132,6 @@ describe("runGate on a git repository", () => {
 	});
 
 	test("measures a tree whose only file is shorter than the clone minimum", async () => {
-		// jscpd writes no report when it skips every file; that is zero clones.
 		await git("reset", "--hard", "--quiet", "base");
 		const { code, out } = await gate("--report");
 		expect(code).toBe(0);
@@ -167,28 +147,19 @@ describe("runGate on a git repository", () => {
 
 	test("measures the base at the same subfolder as --root", async () => {
 		await commitHead(COMPLEX);
-		const log = spyOn(console, "log").mockImplementation(() => {});
-		try {
-			await runGate(["--root", join(repo, "pkg"), "--base", "base", "--json"]);
-			const json = JSON.parse(String(log.mock.calls[0]?.[0]));
-			// Only src/route.ts changed, outside pkg/, so pkg/ is the same on both sides.
-			expect(json.base.detail.loc).toBe(json.detail.loc);
-			expect(json.detail.files).toBe(1);
-		} finally {
-			log.mockRestore();
-		}
+		// A repeated flag keeps its last value, so this --root wins.
+		const { out } = await gate("--root", join(repo, "pkg"), "--base", "base", "--json");
+		const json = JSON.parse(out);
+		// Only src/route.ts changed, outside pkg/, so pkg/ is the same on both sides.
+		expect(json.detail.files).toBe(1);
+		expect(json.base.detail.loc).toBe(json.detail.loc);
 	});
 
 	test("a --base that does not exist is an error, not a shallow-clone warning", async () => {
-		const error = spyOn(console, "error").mockImplementation(() => {});
-		try {
-			await expect(runGate(["--root", repo, "--base", "no-such-ref"])).rejects.toThrow(
-				"git exited 128",
-			);
-			expect(error.mock.calls.map(String).join("")).not.toContain("::warning::");
-		} finally {
-			error.mockRestore();
-		}
+		const run = await captureConsole(() => runGate(["--root", repo, "--base", "no-such-ref"]));
+		expect(run.ok).toBe(false);
+		expect(run.ok ? "" : String(run.thrown)).toContain("git exited 128");
+		expect(run.err).not.toContain("::warning::");
 	});
 
 	test("--help prints the usage even next to a bad flag", async () => {
@@ -200,15 +171,10 @@ describe("runGate on a git repository", () => {
 	test("a broken config exits 2 with one line and no stack trace", async () => {
 		const config = join(repo, "bad.json");
 		await writeFile(config, JSON.stringify({ languages: {}, hotcallables: true }));
-		const proc = Bun.spawn(
-			["bun", join(PACKAGE_DIR, "bin/slopgate.ts"), "--root", repo, "--config", config],
-			{
-				stdout: "pipe",
-				stderr: "pipe",
-			},
-		);
-		expect(await proc.exited).toBe(2);
-		const err = await new Response(proc.stderr).text();
+		const cli = join(PACKAGE_DIR, "bin/slopgate.ts");
+		const run = await Bun.$`bun ${cli} --root ${repo} --config ${config}`.nothrow().quiet();
+		expect(run.exitCode).toBe(2);
+		const err = run.stderr.toString();
 		expect(err).toStartWith("slopgate: ");
 		expect(err).toContain("unknown key `hotcallables`");
 		expect(err).not.toContain("    at ");

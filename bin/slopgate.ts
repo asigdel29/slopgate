@@ -11,10 +11,11 @@
 import { runGate } from "../src/cli.ts";
 import { runInit } from "../src/init.ts";
 
-const [command, ...rest] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const [command, ...rest] = args;
 try {
 	if (command === "init") await runInit(rest);
-	else process.exitCode = await runGate(process.argv.slice(2));
+	else process.exitCode = await runGate(args);
 } catch (err) {
 	console.error(`slopgate: ${err instanceof Error ? err.message : String(err)}`);
 	process.exitCode = 2;

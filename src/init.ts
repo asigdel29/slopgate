@@ -94,18 +94,18 @@ const NEXT_STEPS = `Next steps:
  * Throws on an unknown argument, before it writes anything.
  */
 export async function runInit(argv: string[]): Promise<void> {
+	// Before parsing, so help works even next to a bad flag, as for the gate.
+	if (argv.includes("--help") || argv.includes("-h")) {
+		console.log(INIT_USAGE);
+		return;
+	}
 	const { values } = parseArgs({
 		args: argv,
 		options: {
 			root: { type: "string", default: "." },
 			force: { type: "boolean", default: false },
-			help: { type: "boolean", short: "h" },
 		},
 	});
-	if (values.help) {
-		console.log(INIT_USAGE);
-		return;
-	}
 	await init(resolve(values.root), values.force);
 	console.log(`\n${NEXT_STEPS}`);
 }

@@ -42,7 +42,11 @@ function input({ config, ...rest }: Fields): GateInput {
 		base: null,
 		hot: null,
 		...rest,
-		config: { ...configFor("typescript", ["src/**/*.ts"], 1), ...config },
+		config: {
+			...configFor("typescript", ["src/**/*.ts"]),
+			calibratedAtRulePackVersion: 1,
+			...config,
+		},
 	};
 }
 
