@@ -10,19 +10,11 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Callable, SlopConfig } from "../src/config.ts";
+import type { Callable } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
+import { configFor } from "./helpers.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
-
-function configFor(language: "typescript" | "swift", include: string[]): SlopConfig {
-	return {
-		languages: { [language]: { include, exclude: [] } },
-		maxDelta: { erosion: null, verbosity: null },
-		thresholds: { erosion: null, verbosity: null },
-		calibratedAtRulePackVersion: 0,
-	};
-}
 
 /**
  * Callables by one-based start line. These tests are about complexity, so they

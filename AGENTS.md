@@ -4,12 +4,15 @@ slopgate is a CI gate for two code-degradation metrics: structural erosion and v
 
 ## Map
 
-- `bin/slopgate.ts`: the CLI. It parses arguments, runs the gate and sets the exit code.
+- `bin/slopgate.ts`: the entry point. It sends `init` to `src/init.ts` and all else to `src/cli.ts`, and turns an error into exit code 2.
+- `src/cli.ts`: the gate command. It parses the flags, measures and prints. `src/gate.ts`: the verdict, as a pure function.
+- `src/config.ts`: the config types, the loader and the shared constants.
 - `src/measure.ts`: the measurement pipeline, from source files to metrics.
 - `src/callables.ts`, `src/scan.ts`, `src/sources.ts`, `src/clones.ts`: the parts of the pipeline.
 - `src/metrics.ts`: the erosion and verbosity formulas.
 - `src/hot.ts`: the hot-callable ratchet. `src/git.ts`: the base checkout.
 - `src/report.ts`: the text report. `src/init.ts`: the `init` subcommand.
+- `src/tools.ts`: where the analyser binaries are. `src/process.ts`: running a tool, and temp folders.
 - `structural/`: the ast-grep rules that find callables and decision points.
 - `rules/`: the slop rule pack. `rules/VERSION` is its version. `rules/PORTING.md` is the port ledger.
 - `examples/`: the slop config and the CI workflow that `init` copies.

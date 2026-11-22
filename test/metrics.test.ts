@@ -9,25 +9,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { buildCallables } from "../src/callables.ts";
-import type { Callable, FileMeasurement } from "../src/config.ts";
+import type { FileMeasurement } from "../src/config.ts";
 import { computeErosion, computeVerbosity, mass } from "../src/metrics.ts";
-import { retargetRuleText } from "../src/scan.ts";
 import { classifyLines } from "../src/sources.ts";
-
-function callable(complexity: number, sloc: number, file = "a.ts"): Callable {
-	return {
-		file,
-		language: "typescript",
-		startByte: 0,
-		endByte: 1,
-		startLine: 0,
-		endLine: 0,
-		complexity,
-		sloc,
-		name: null,
-		waived: false,
-	};
-}
+import { callable } from "./helpers.ts";
 
 describe("mass (Eq. 2)", () => {
 	test("is CC x sqrt(SLOC)", () => {
@@ -48,7 +33,11 @@ describe("computeErosion (Eq. 3)", () => {
 		// masses:      12*sqrt(100)=120   5*sqrt(25)=25   11*sqrt(4)=22
 		// total:       120 + 25 + 22 = 167
 		// above CC 10: 120 + 22       = 142   (5 is not > 10)
-		const result = computeErosion([callable(12, 100), callable(5, 25), callable(11, 4)]);
+		const result = computeErosion([
+			callable({ complexity: 12, sloc: 100 }),
+			callable({ complexity: 5, sloc: 25 }),
+			callable({ complexity: 11, sloc: 4 }),
+		]);
 
 		expect(result.totalMass).toBe(167);
 		expect(result.highComplexityMass).toBe(142);
@@ -60,13 +49,16 @@ describe("computeErosion (Eq. 3)", () => {
 
 	test("the cutoff is strictly greater than 10, matching Radon's bound", () => {
 		// CC exactly 10 is NOT high-complexity; 11 is.
-		expect(computeErosion([callable(10, 16)]).erosion).toBe(0);
-		expect(computeErosion([callable(11, 16)]).erosion).toBe(1);
+		expect(computeErosion([callable({ complexity: 10, sloc: 16 })]).erosion).toBe(0);
+		expect(computeErosion([callable({ complexity: 11, sloc: 16 })]).erosion).toBe(1);
 	});
 
 	test("skips callables with no source lines, like upstream's sloc <= 0 guard", () => {
 		// A bodiless declaration must not contribute a zero to either sum.
-		const result = computeErosion([callable(12, 100), callable(99, 0)]);
+		const result = computeErosion([
+			callable({ complexity: 12, sloc: 100 }),
+			callable({ complexity: 99, sloc: 0 }),
+		]);
 		expect(result.callables).toBe(1);
 		expect(result.totalMass).toBe(120);
 		expect(result.erosion).toBe(1);
@@ -74,11 +66,15 @@ describe("computeErosion (Eq. 3)", () => {
 
 	test("an empty codebase has no concentration rather than NaN", () => {
 		expect(computeErosion([]).erosion).toBe(0);
-		expect(computeErosion([callable(5, 0)]).erosion).toBe(0);
+		expect(computeErosion([callable({ complexity: 5, sloc: 0 })]).erosion).toBe(0);
 	});
 
 	test("stays within [0, 1]", () => {
-		const result = computeErosion([callable(40, 900), callable(3, 4), callable(11, 100)]);
+		const result = computeErosion([
+			callable({ complexity: 40, sloc: 900 }),
+			callable({ complexity: 3, sloc: 4 }),
+			callable({ complexity: 11, sloc: 100 }),
+		]);
 		expect(result.erosion).toBeGreaterThanOrEqual(0);
 		expect(result.erosion).toBeLessThanOrEqual(1);
 	});
@@ -258,32 +254,5 @@ describe("buildCallables", () => {
 			"typescript",
 		);
 		expect(callables[0]?.complexity).toBe(1);
-	});
-});
-
-describe("retargetRuleText", () => {
-	const authored = [
-		"id: dp-if",
-		"language: typescript",
-		"severity: hint",
-		"rule:",
-		"  kind: if_statement",
-	].join("\n");
-
-	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
-		const out = retargetRuleText(authored, "tsx", "-tsx");
-		expect(out).toContain("id: dp-if-tsx");
-		expect(out).toContain("language: tsx");
-		// The rule body itself must be untouched.
-		expect(out).toContain("  kind: if_statement");
-	});
-
-	test("leaves indented keys alone, so only top-level fields are rewritten", () => {
-		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join(
-			"\n",
-		);
-		const out = retargetRuleText(nested, "tsx", "-tsx");
-		expect(out).toContain("    language: nope");
-		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);
 	});
 });

@@ -104,6 +104,29 @@ describe("loadConfig", () => {
 		await expect(loadConfig(path)).rejects.toThrow(/non-empty array of globs/);
 	});
 
+	test("rejects an unknown top-level key, so a misspelt rule cannot stay off", async () => {
+		const path = await configFile({
+			languages: validLanguages,
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			hotcallables: true,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(/unknown key `hotcallables`/);
+	});
+
+	test("allows $comment and $schema", async () => {
+		const path = await configFile({
+			$comment: "why the limits are what they are",
+			$schema: "./schema.json",
+			languages: validLanguages,
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).resolves.toBeDefined();
+	});
+
 	test("reports every problem at once, not just the first", async () => {
 		const path = await configFile({ languages: {}, thresholds: {} });
 		await expect(loadConfig(path)).rejects.toThrow(/languages(.|\n)*calibratedAtRulePackVersion/);

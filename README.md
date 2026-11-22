@@ -19,7 +19,7 @@ Lint, typecheck, dead-code and coverage gates are all blind to this. `slopgate`
 computes the paper's two metrics over a repository and fails the build when a
 change degrades it faster than a human commit typically would.
 
-Supports **TypeScript** (incl. `.tsx`) and **Swift**.
+Supports **TypeScript** (incl. `.tsx`, `.mts` and `.cts`) and **Swift**.
 
 [paper]: https://arxiv.org/abs/2603.24755
 
@@ -127,7 +127,17 @@ slopgate --json                    # machine-readable; always exits 0
 | `--json`            | Print the JSON and exit 0.                                                     |
 | `--json-out <path>` | Also write the JSON to `<path>`, and still gate.                               |
 
-When `maxDelta` or `hotCallables` is set, the gate needs `--base`. Without it, the run fails, because the change was not measured. The exit code is 0 for a pass and 1 for a failed gate or an error.
+When `maxDelta` or `hotCallables` is set, the gate needs `--base`. Without it, the run fails, because the change was not measured.
+
+| Exit code | Meaning                                                                         |
+| --------- | ------------------------------------------------------------------------------- |
+| 0         | The gate passed, or `--report`, `--json` or `--help` was given.                 |
+| 1         | The gate failed. Each failure is a GitHub Actions `::error::` annotation.       |
+| 2         | The run itself failed: a bad flag, a bad config or an analyser error. One line. |
+
+A config key that slopgate does not know is an error, so a typo cannot turn a rule off. `$comment` and `$schema` are allowed.
+
+When the clone has no merge base of `HEAD` and `--base` (a shallow clone), slopgate uses the `--base` commit itself and prints a warning. That is correct for the merge commit of a pull request. For a branch tip, fetch the full history.
 
 This is the output of slopgate on its own source:
 

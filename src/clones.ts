@@ -66,10 +66,18 @@ export async function findCloneLines(
 			missingHint: describeMissing("jscpd", root),
 		});
 		const path = join(reportDir, "jscpd-report.json");
+		// jscpd skips each file shorter than --min-lines, and when no file is
+		// left it returns before any reporter runs, so it exits 0 and writes no
+		// report. No eligible file means no clone, so that case is an empty
+		// report. Any other read or parse failure is a fault.
+		const text = await readFile(path, "utf8").catch((err: NodeJS.ErrnoException) => {
+			if (err.code === "ENOENT") return '{"duplicates":[]}';
+			throw err;
+		});
 		try {
-			return JSON.parse(await readFile(path, "utf8")) as JscpdReport;
+			return JSON.parse(text) as JscpdReport;
 		} catch (err) {
-			throw new Error(`jscpd wrote no readable report at ${path}: ${(err as Error).message}`, {
+			throw new Error(`jscpd wrote an unreadable report at ${path}: ${(err as Error).message}`, {
 				cause: err,
 			});
 		}

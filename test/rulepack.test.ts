@@ -13,12 +13,12 @@
 // touching the shipped one.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SlopConfig } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
+import { retargetRuleText } from "../src/scan.ts";
+import { configFor } from "./helpers.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const TIMEOUT_MS = 60_000;
@@ -74,21 +74,12 @@ afterAll(async () => {
 	await rm(rulesDir, { recursive: true, force: true });
 });
 
-function configFor(language: "typescript" | "swift", include: string[]): SlopConfig {
-	return {
-		languages: { [language]: { include, exclude: [] } },
-		maxDelta: { erosion: null, verbosity: null },
-		thresholds: { erosion: null, verbosity: null },
-		calibratedAtRulePackVersion: 1,
-	};
-}
-
 describe("rule pack", () => {
 	test(
 		"a matching rule contributes flagged lines to verbosity",
 		async () => {
 			const { metrics } = await measure(
-				configFor("typescript", ["typescript/complexity.ts"]),
+				configFor("typescript", ["typescript/complexity.ts"], 1),
 				FIXTURES,
 			);
 
@@ -104,7 +95,10 @@ describe("rule pack", () => {
 	test(
 		"the pack runs for Swift too",
 		async () => {
-			const { metrics } = await measure(configFor("swift", ["swift/complexity.swift"]), FIXTURES);
+			const { metrics } = await measure(
+				configFor("swift", ["swift/complexity.swift"], 1),
+				FIXTURES,
+			);
 			// branching() has exactly one guard statement.
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
@@ -117,7 +111,10 @@ describe("rule pack", () => {
 			// view.tsx has two ternaries. They only match if the authored
 			// `language: typescript` pack is re-targeted to the tsx grammar — the
 			// same dialect problem the structural rules have, on a second code path.
-			const { metrics } = await measure(configFor("typescript", ["typescript/view.tsx"]), FIXTURES);
+			const { metrics } = await measure(
+				configFor("typescript", ["typescript/view.tsx"], 1),
+				FIXTURES,
+			);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,
@@ -127,7 +124,7 @@ describe("rule pack", () => {
 		"verbosity stays bounded when rules and clones overlap",
 		async () => {
 			const { metrics } = await measure(
-				configFor("typescript", ["typescript/complexity.ts"]),
+				configFor("typescript", ["typescript/complexity.ts"], 1),
 				FIXTURES,
 			);
 			expect(metrics.verbosity).toBeLessThanOrEqual(1);
@@ -138,4 +135,31 @@ describe("rule pack", () => {
 		},
 		TIMEOUT_MS,
 	);
+});
+
+describe("retargetRuleText", () => {
+	const authored = [
+		"id: dp-if",
+		"language: typescript",
+		"severity: hint",
+		"rule:",
+		"  kind: if_statement",
+	].join("\n");
+
+	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
+		const out = retargetRuleText(authored, "tsx", "-tsx");
+		expect(out).toContain("id: dp-if-tsx");
+		expect(out).toContain("language: tsx");
+		// The rule body itself must be untouched.
+		expect(out).toContain("  kind: if_statement");
+	});
+
+	test("leaves indented keys alone, so only top-level fields are rewritten", () => {
+		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join(
+			"\n",
+		);
+		const out = retargetRuleText(nested, "tsx", "-tsx");
+		expect(out).toContain("    language: nope");
+		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);
+	});
 });
