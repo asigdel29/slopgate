@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { Callable } from "../src/config.ts";
 import { findHotCallables } from "../src/hot.ts";
 import { measure } from "../src/measure.ts";
-import { formatHotCallables } from "../src/report.ts";
+import { formatHotCallables } from "../src/gate.ts";
 import { callable, configFor } from "./helpers.ts";
 
 /** A head or base callable on line 10 of `file`, the shape every ratchet test needs. */

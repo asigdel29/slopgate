@@ -8,7 +8,7 @@
 // the user-facing statement of the rule.
 
 import type { Callable } from "./config.ts";
-import { HIGH_COMPLEXITY_CUTOFF } from "./config.ts";
+import { isHighComplexity } from "./metrics.ts";
 
 /** One callable that breaks the ratchet, with what it was on the base. */
 export type HotCallable = {
@@ -63,7 +63,7 @@ export function findHotCallables(head: Callable[], base: Callable[]): HotCallabl
 		})
 		.filter(
 			({ c, match }) =>
-				c.complexity > HIGH_COMPLEXITY_CUTOFF &&
+				isHighComplexity(c) &&
 				!c.waived &&
 				(match === undefined || c.complexity > match.complexity),
 		)

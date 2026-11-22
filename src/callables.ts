@@ -12,7 +12,7 @@
 // entry, and their branches are removed from the parent's count — also Radon's
 // behaviour.
 
-import type { Callable, FileMeasurement, Language } from "./config.ts";
+import type { Callable, Language } from "./config.ts";
 import { WAIVER } from "./config.ts";
 import type { Match } from "./scan.ts";
 
@@ -87,7 +87,7 @@ export function ruleKind(ruleId: string): RuleKind | null {
  * Only Swift needs this. In TypeScript the equivalent is written with `&&`,
  * which is already a node the decision-point rules match directly.
  */
-const MULTI_CLAUSE_STATEMENT_RULES = ["dp-if", "dp-guard"];
+const MULTI_CLAUSE_STATEMENT_RULE = /^dp-(?:if|guard)/;
 
 /** Callables whose name is their kind rather than an identifier in the source. */
 const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
@@ -131,9 +131,13 @@ function namesByStart(callables: Match[], names: Match[]): Map<number, string> {
 
 /** One file's matches and source lines, as buildCallables groups them. */
 type FileScan = {
+	/** The path, relative to the repository root. */
 	file: string;
+	/** The language the file was measured as. */
 	language: Language;
+	/** The structural matches in this file. */
 	matches: Match[];
+	/** The file's source lines. */
 	sourceLines: Set<number>;
 };
 
@@ -158,7 +162,7 @@ function callablesInFile({ file, language, matches, sourceLines }: FileScan): Ca
 
 	for (const decision of ofKind("decision")) addDecisions(decision.range.byteOffset.start, 1);
 	const statements = ofKind("decision")
-		.filter((m) => MULTI_CLAUSE_STATEMENT_RULES.some((id) => m.ruleId.startsWith(id)))
+		.filter((m) => MULTI_CLAUSE_STATEMENT_RULE.test(m.ruleId))
 		.map(toSpan);
 	for (const [start, extra] of extraConditionComplexity(
 		statements,
@@ -187,19 +191,21 @@ function callablesInFile({ file, language, matches, sourceLines }: FileScan): Ca
 	}));
 }
 
-/**
- * Build the callable table for one language.
- *
- * `measurements` supplies each file's source-line set, so SLOC is computed on
- * the same definition as the LOC denominator rather than a second, subtly
- * different one.
- */
-export function buildCallables(
-	matches: Match[],
-	measurements: FileMeasurement[],
-	language: Language,
-): Callable[] {
-	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
+/** One language's structural matches, with the source lines of each file. */
+type LanguageScan = {
+	/** Every structural match for the language's files. */
+	matches: Match[];
+	/**
+	 * Each file's source lines, so SLOC uses the same definition as the LOC
+	 * denominator rather than a second, subtly different one.
+	 */
+	sourceLinesByFile: Map<string, Set<number>>;
+	/** The language the files were measured as. */
+	language: Language;
+};
+
+/** Build the callable table for one language. */
+export function buildCallables({ matches, sourceLinesByFile, language }: LanguageScan): Callable[] {
 	return [...Map.groupBy(matches, (m) => m.file)].flatMap(([file, fileMatches]) => {
 		const sourceLines = sourceLinesByFile.get(file);
 		return sourceLines

@@ -103,6 +103,12 @@ beforeAll(async () => {
 		join(repo, "src/route.ts"),
 		"export function route(a: number): number {\n\treturn a;\n}\n",
 	);
+	// A package in a subfolder, with its own config, for --root inside a repository.
+	await Bun.write(
+		join(repo, "pkg/slop.config.json"),
+		await Bun.file(join(repo, "slop.config.json")).text(),
+	);
+	await Bun.write(join(repo, "pkg/src/one.ts"), "export const one = 1;\n");
 	await git("add", ".");
 	await git("commit", "--quiet", "-m", "base");
 	await git("tag", "base");
@@ -157,6 +163,38 @@ describe("runGate on a git repository", () => {
 		const second = await gate("--json");
 		expect(first.code).toBe(0);
 		expect(second.out).toBe(first.out);
+	});
+
+	test("measures the base at the same subfolder as --root", async () => {
+		await commitHead(COMPLEX);
+		const log = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			await runGate(["--root", join(repo, "pkg"), "--base", "base", "--json"]);
+			const json = JSON.parse(String(log.mock.calls[0]?.[0]));
+			// Only src/route.ts changed, outside pkg/, so pkg/ is the same on both sides.
+			expect(json.base.detail.loc).toBe(json.detail.loc);
+			expect(json.detail.files).toBe(1);
+		} finally {
+			log.mockRestore();
+		}
+	});
+
+	test("a --base that does not exist is an error, not a shallow-clone warning", async () => {
+		const error = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await expect(runGate(["--root", repo, "--base", "no-such-ref"])).rejects.toThrow(
+				"git exited 128",
+			);
+			expect(error.mock.calls.map(String).join("")).not.toContain("::warning::");
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	test("--help prints the usage even next to a bad flag", async () => {
+		const { code, out } = await gate("--bogus", "--help");
+		expect(code).toBe(0);
+		expect(out).toContain("Exit codes: 0 pass");
 	});
 
 	test("a broken config exits 2 with one line and no stack trace", async () => {

@@ -9,8 +9,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileMeasurement } from "./config.ts";
 import { runTool, withTempDir } from "./process.ts";
-import { relativeTo } from "./sources.ts";
-import { describeMissing, resolveTool } from "./tools.ts";
+import { relativeTo, sourceLineKeys } from "./sources.ts";
+import { resolveTool } from "./tools.ts";
 
 /**
  * Clone-detection sensitivity. Pinned explicitly rather than left to jscpd's
@@ -48,7 +48,7 @@ export async function findCloneLines(
 		// ceiling on repository size; runTool reports E2BIG as itself rather than
 		// as a missing-tool error.
 		await runTool({
-			bin: resolveTool("jscpd", root),
+			...resolveTool("jscpd", root),
 			args: [
 				...measurements.map((m) => m.file),
 				"--reporters",
@@ -63,15 +63,15 @@ export async function findCloneLines(
 			],
 			name: "jscpd",
 			cwd: root,
-			missingHint: describeMissing("jscpd", root),
 		});
 		const path = join(reportDir, "jscpd-report.json");
-		// jscpd skips each file shorter than --min-lines, and when no file is
-		// left it returns before any reporter runs, so it exits 0 and writes no
-		// report. No eligible file means no clone, so that case is an empty
-		// report. Any other read or parse failure is a fault.
+		// jscpd skips each file shorter than --min-lines, and when it skips them
+		// all it returns before any reporter runs: exit 0 and no report. That case
+		// is zero clones. A missing report when some file was long enough is a
+		// fault, because jscpd then had input and wrote nothing.
+		const anyEligible = measurements.some((m) => m.lineCount >= MIN_LINES);
 		const text = await readFile(path, "utf8").catch((err: NodeJS.ErrnoException) => {
-			if (err.code === "ENOENT") return '{"duplicates":[]}';
+			if (err.code === "ENOENT" && !anyEligible) return '{"duplicates":[]}';
 			throw err;
 		});
 		try {
@@ -87,15 +87,16 @@ export async function findCloneLines(
 	for (const duplicate of report.duplicates ?? []) {
 		for (const ref of [duplicate.firstFile, duplicate.secondFile]) {
 			const file = relativeTo(root, ref.name);
-			const sourceLines = sourceLinesByFile.get(file);
-			if (!sourceLines) continue;
-
 			// jscpd lines are 1-based and inclusive.
-			for (let line = ref.start; line <= ref.end; line++) {
-				const zeroBased = line - 1;
-				if (sourceLines.has(zeroBased)) cloneLines.add(`${file}:${zeroBased}`);
-			}
+			const keys = sourceLineKeys({
+				file,
+				sourceLines: sourceLinesByFile.get(file),
+				startLine: ref.start - 1,
+				endLine: ref.end - 1,
+			});
+			for (const key of keys) cloneLines.add(key);
 		}
 	}
+
 	return cloneLines;
 }

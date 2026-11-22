@@ -56,7 +56,7 @@ function expectedLines(source: string): number[] {
 
 async function firedLines(rulePath: string, fixturePath: string): Promise<number[]> {
 	const { stdout } = await runTool({
-		bin: resolveTool("ast-grep", PACKAGE_DIR),
+		...resolveTool("ast-grep", PACKAGE_DIR),
 		args: ["scan", "--rule", rulePath, "--json", fixturePath],
 		name: "ast-grep",
 		cwd: PACKAGE_DIR,

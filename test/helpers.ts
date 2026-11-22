@@ -13,6 +13,7 @@ export function configFor(
 		languages: { [language]: { include, exclude: [] } },
 		maxDelta: { erosion: null, verbosity: null },
 		thresholds: { erosion: null, verbosity: null },
+		hotCallables: false,
 		calibratedAtRulePackVersion,
 	};
 }

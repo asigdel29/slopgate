@@ -9,7 +9,6 @@
 
 import { describe, expect, test } from "bun:test";
 import { buildCallables } from "../src/callables.ts";
-import type { FileMeasurement } from "../src/config.ts";
 import { computeErosion, computeVerbosity, mass } from "../src/metrics.ts";
 import { classifyLines } from "../src/sources.ts";
 import { callable } from "./helpers.ts";
@@ -172,24 +171,20 @@ function match(ruleId: string, startByte: number, endByte: number, startLine = 0
 }
 
 describe("buildCallables", () => {
-	const measurement: FileMeasurement = {
-		file: "a.ts",
-		language: "typescript",
-		loc: 10,
-		sourceLines: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-	};
+	/** Every line of a.ts is a source line. */
+	const dense = new Map([["a.ts", new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])]]);
 
 	test("a decision point is attributed to the innermost enclosing callable", () => {
 		// outer 0..100 contains inner 40..60; the dp at 50 belongs to inner only.
-		const callables = buildCallables(
-			[
+		const callables = buildCallables({
+			matches: [
 				match("callable-function-declaration", 0, 100, 0, 9),
 				match("callable-named-function-expression", 40, 60, 3, 5),
 				match("dp-if", 50, 55, 4, 4),
 			],
-			[measurement],
-			"typescript",
-		);
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		const outer = callables.find((c) => c.startByte === 0);
 		const inner = callables.find((c) => c.startByte === 40);
@@ -202,15 +197,15 @@ describe("buildCallables", () => {
 		// An inline closure produces no callable-* match at all (see
 		// structural/typescript.yml), so its dp lands on the function around it
 		// rather than creating a near-zero-CC entry that would dilute Eq. 3.
-		const callables = buildCallables(
-			[
+		const callables = buildCallables({
+			matches: [
 				match("callable-function-declaration", 0, 100, 0, 9),
 				match("dp-if", 50, 55, 4, 4),
 				match("dp-logical", 56, 58, 4, 4),
 			],
-			[measurement],
-			"typescript",
-		);
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		expect(callables).toHaveLength(1);
 		expect(callables[0]?.complexity).toBe(3);
@@ -219,40 +214,38 @@ describe("buildCallables", () => {
 	test("a top-level decision point outside every callable is dropped", () => {
 		// Upstream's mass.py sums function/method symbols only, so module-level
 		// control flow has nowhere to go and must not inflate anything.
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 10, 0, 0), match("dp-if", 500, 505, 8, 8)],
-			[measurement],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [
+				match("callable-function-declaration", 0, 10, 0, 0),
+				match("dp-if", 500, 505, 8, 8),
+			],
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		expect(callables).toHaveLength(1);
 		expect(callables[0]?.complexity).toBe(1);
 	});
 
 	test("SLOC counts only the file's source lines inside the callable's range", () => {
-		const sparse: FileMeasurement = {
-			file: "a.ts",
-			language: "typescript",
-			loc: 3,
-			// lines 1 and 3 are blank or comment-only
-			sourceLines: new Set([0, 2, 4]),
-		};
+		// Lines 1 and 3 are blank or comment-only.
+		const sparse = new Map([["a.ts", new Set([0, 2, 4])]]);
 
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 100, 0, 4)],
-			[sparse],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [match("callable-function-declaration", 0, 100, 0, 4)],
+			sourceLinesByFile: sparse,
+			language: "typescript",
+		});
 
 		expect(callables[0]?.sloc).toBe(3);
 	});
 
 	test("complexity starts at 1 with no decision points", () => {
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 10, 0, 0)],
-			[measurement],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [match("callable-function-declaration", 0, 10, 0, 0)],
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 		expect(callables[0]?.complexity).toBe(1);
 	});
 });

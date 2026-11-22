@@ -10,7 +10,6 @@
 
 import { Glob } from "bun";
 import type { FileMeasurement, Language, LanguageConfig } from "./config.ts";
-import type { Match } from "./scan.ts";
 
 const SPACE = 0x20;
 const TAB = 0x09;
@@ -109,22 +108,51 @@ export function classifyLines(
 }
 
 /**
- * Measure every file: read it, apply the comment spans from the structural scan,
- * and record its source lines.
+ * The `file:line` keys of the source lines in `[startLine, endLine]`. A match or
+ * a clone spans whole lines, blank and comment lines included, but Eq. 4
+ * counts source lines only, so both halves of verbosity clip to them here.
+ * The union in computeVerbosity relies on both halves building keys this way.
  */
-export async function measureFiles(
-	files: string[],
-	language: Language,
-	commentMatches: Match[],
-	root: string,
-): Promise<FileMeasurement[]> {
-	const commentsByFile = new Map<string, Array<[number, number]>>();
-	for (const m of commentMatches) {
-		const spans = commentsByFile.get(m.file) ?? [];
-		spans.push([m.range.byteOffset.start, m.range.byteOffset.end]);
-		commentsByFile.set(m.file, spans);
+export function sourceLineKeys({
+	file,
+	sourceLines,
+	startLine,
+	endLine,
+}: {
+	file: string;
+	sourceLines: Set<number> | undefined;
+	startLine: number;
+	endLine: number;
+}): string[] {
+	const keys: string[] = [];
+	for (let line = startLine; line <= endLine; line++) {
+		if (sourceLines?.has(line)) keys.push(`${file}:${line}`);
 	}
+	return keys;
+}
 
+/** One language's files to measure, with the comment byte spans of each file. */
+type FilesToMeasure = {
+	/** Paths relative to `root`. */
+	files: string[];
+	/** The language the files are measured as. */
+	language: Language;
+	/** Byte spans of the comments in each file, from the structural scan. */
+	commentsByFile: Map<string, Array<[number, number]>>;
+	/** The repository root. */
+	root: string;
+};
+
+/**
+ * Measure every file: read it, apply its comment spans, and record its source
+ * lines. Throws on a file that is not valid UTF-8.
+ */
+export async function measureFiles({
+	files,
+	language,
+	commentsByFile,
+	root,
+}: FilesToMeasure): Promise<FileMeasurement[]> {
 	// Reads are independent, so they run concurrently. Sequentially awaiting a
 	// few hundred files is the dominant cost of a job whose whole point is to be
 	// cheap enough for every PR.
@@ -146,7 +174,8 @@ export async function measureFiles(
 			}
 
 			const sourceLines = classifyLines(contents, commentsByFile.get(file) ?? []);
-			return { file, language, loc: sourceLines.size, sourceLines };
+			const lineCount = contents.filter((byte) => byte === LF).length + 1;
+			return { file, language, loc: sourceLines.size, lineCount, sourceLines };
 		}),
 	);
 }

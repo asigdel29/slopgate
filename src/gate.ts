@@ -4,18 +4,98 @@
 // messages. The CLI prints them and sets the exit code, so every rule here is
 // testable without a repository or a process.
 
-import type { SlopConfig, SlopMetrics } from "./config.ts";
-import { METRICS } from "./config.ts";
+import type { Metric, SlopConfig, SlopMetrics } from "./config.ts";
+import {
+	DEGRADATION_VELOCITY,
+	HIGH_COMPLEXITY_CUTOFF,
+	HUMAN_PANEL_REFERENCE,
+	METRICS,
+	WAIVER,
+} from "./config.ts";
 import type { HotCallable } from "./hot.ts";
-import { exceeds } from "./metrics.ts";
-import { formatDeltaFailure, formatFailure, formatHotCallables } from "./report.ts";
 
-/** Everything the verdict depends on. `base` and `hot` are null without --base. */
+/** A metric value, at the precision every message and report line uses. */
+export function fixed(value: number): string {
+	return value.toFixed(4);
+}
+
+/** A delta with its sign, so a fall reads as clearly as a rise. */
+export function signed(value: number): string {
+	return `${value >= 0 ? "+" : ""}${fixed(value)}`;
+}
+
+/**
+ * Whether `value` breaks `limit`. A null limit means not gated. The gate uses
+ * it for a delta against `maxDelta` and for a level against `thresholds`; the
+ * report uses it for the verdict it prints, so the two cannot disagree.
+ */
+export function exceeds(value: number, limit: number | null): boolean {
+	return limit !== null && value > limit;
+}
+
+/** One metric's value against a limit: the base and head levels, or a level and a ceiling. */
+type Breach = { metric: Metric; before: number; after: number; limit: number };
+
+/**
+ * The absolute backstop failure, as a GitHub Actions `::error::` annotation, so
+ * it shows inline in the pull request.
+ */
+function thresholdMessage({ metric, after, limit }: Breach): string {
+	return (
+		`::error::${metric} ${fixed(after)} exceeds the ${limit} ratchet ceiling — ` +
+		`this change concentrates complexity or adds redundant code. ` +
+		`The ceiling is a one-way ratchet and must not be raised; ` +
+		`reduce ${metric === "erosion" ? "branching in the largest functions" : "duplicated or flagged lines"} instead.`
+	);
+}
+
+/**
+ * The primary failure: this change degraded the codebase faster than a human
+ * commit typically does.
+ */
+function deltaMessage({ metric, before, after, limit }: Breach): string {
+	const delta = after - before;
+	const humanRate = DEGRADATION_VELOCITY.humanMedian[metric];
+	return (
+		`::error::${metric} rose ${signed(delta)} (${fixed(before)} -> ${fixed(after)}), ` +
+		`past the ${limit} allowed for one change. That is ${(delta / humanRate).toFixed(1)}x ` +
+		`the median human commit in ${HUMAN_PANEL_REFERENCE.source}. ` +
+		(metric === "erosion"
+			? "Split the new branching into its own function instead of adding another arm to an existing one."
+			: "Factor out the duplicated lines.")
+	);
+}
+
+/**
+ * The per-callable failure: one annotation per offending callable, anchored on
+ * its line so the pull request's diff view shows it in place.
+ */
+export function formatHotCallables(hot: HotCallable[]): string[] {
+	return hot.map((h) => {
+		const what =
+			h.baseComplexity === null
+				? `is new at CC ${h.complexity}`
+				: `grew from CC ${h.baseComplexity} to ${h.complexity}`;
+		return (
+			`::error file=${h.file},line=${h.line}::${h.name ?? "this callable"} ${what}, over the ` +
+			`CC ${HIGH_COMPLEXITY_CUTOFF} cutoff. Move the new branching into its own function ` +
+			`rather than adding it here. If this one is deliberate, put a \`${WAIVER}: <reason>\` ` +
+			"comment on the line above it."
+		);
+	});
+}
+
+/** Everything the verdict depends on. */
 export type GateInput = {
+	/** The validated config of the measured repository. */
 	config: SlopConfig;
+	/** Where the config came from, so a message can name the file to edit. */
 	configPath: string;
+	/** The metrics of the tree under test. */
 	head: SlopMetrics;
+	/** The metrics of the merge base, or null without --base. */
 	base: SlopMetrics | null;
+	/** The callables that break the ratchet, or null when the rule is off or there is no base. */
 	hot: HotCallable[] | null;
 };
 
@@ -37,8 +117,7 @@ function stoppingFailure({ config, configPath, head, base }: GateInput): string 
 			"into that file, and commit them together."
 		);
 	}
-	const perChange =
-		METRICS.some((m) => config.maxDelta[m] !== null) || config.hotCallables === true;
+	const perChange = METRICS.some((m) => config.maxDelta[m] !== null) || config.hotCallables;
 	if (base === null && perChange) {
 		return (
 			"::error::maxDelta or hotCallables is configured but --base was not given, so the " +
@@ -55,7 +134,7 @@ function deltaFailures({ config, head, base }: GateInput): string[] {
 	return METRICS.flatMap((m) => {
 		const limit = config.maxDelta[m];
 		return limit !== null && exceeds(head[m] - base[m], limit)
-			? [formatDeltaFailure(m, base[m], head[m], limit)]
+			? [deltaMessage({ metric: m, before: base[m], after: head[m], limit })]
 			: [];
 	});
 }
@@ -65,7 +144,7 @@ function thresholdFailures({ config, head }: GateInput): string[] {
 	return METRICS.flatMap((m) => {
 		const ceiling = config.thresholds[m];
 		return ceiling !== null && exceeds(head[m], ceiling)
-			? [formatFailure(m, head[m], ceiling)]
+			? [thresholdMessage({ metric: m, before: head[m], after: head[m], limit: ceiling })]
 			: [];
 	});
 }

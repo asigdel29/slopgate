@@ -115,6 +115,28 @@ describe("loadConfig", () => {
 		await expect(loadConfig(path)).rejects.toThrow(/unknown key `hotcallables`/);
 	});
 
+	test("rejects an unknown key inside a language and inside a limit section", async () => {
+		const path = await configFile({
+			languages: { typescript: { include: ["src/**/*.ts"], exlude: ["**/*.test.ts"] } },
+			maxDelta: { ...noDelta, erosionn: 0.1 },
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(
+			/languages\.typescript\.exlude(.|\n)*maxDelta\.erosionn/,
+		);
+	});
+
+	test("rejects an exclude that is not an array of globs", async () => {
+		const path = await configFile({
+			languages: { typescript: { include: ["src/**/*.ts"], exclude: "dist/**" } },
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(/exclude must be an array of globs/);
+	});
+
 	test("allows $comment and $schema", async () => {
 		const path = await configFile({
 			$comment: "why the limits are what they are",

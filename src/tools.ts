@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { PACKAGE_DIR } from "./config.ts";
 
 /** The analysers that slopgate pins and resolves. */
-export type ToolName = "ast-grep" | "jscpd";
+type ToolName = "ast-grep" | "jscpd";
 
 /** The environment variable that overrides each tool's path. */
 const ENV_OVERRIDE: Record<ToolName, string> = {
@@ -68,33 +68,44 @@ function astGrepPlatformBinary(fromDirs: string[]): string | null {
 	return null;
 }
 
-/** The path or command to run `tool` with, from the first source in the chain above. */
-export function resolveTool(tool: ToolName, root: string): string {
+/** A resolved tool: what to run, and what to say if it cannot be started. */
+export type ResolvedTool = {
+	/** The path or command to spawn. */
+	bin: string;
+	/** Every place that was tried, so a missing tool names them all. */
+	missingHint: string;
+};
+
+/**
+ * Tools resolved so far in this process. The head and the base of one run must
+ * use the same analyser, or the delta measures the analyser and not the change.
+ * The base is measured in a temp worktree with no node_modules, so a second
+ * lookup from there could find a different binary on PATH.
+ */
+// ponytail: one cache for the process; key by root if one process ever measures unrelated repos with different pins.
+const resolved = new Map<ToolName, ResolvedTool>();
+
+/**
+ * The tool to run, from the first source in the chain above that has it, or
+ * the bare name for PATH. The hint lists every place tried.
+ */
+export function resolveTool(tool: ToolName, root: string): ResolvedTool {
 	const override = process.env[ENV_OVERRIDE[tool]];
-	if (override) return override;
+	if (override)
+		return { bin: override, missingHint: `$${ENV_OVERRIDE[tool]} is set to ${override}.` };
+	const known = resolved.get(tool);
+	if (known) return known;
 
 	const platformBinary = tool === "ast-grep" ? astGrepPlatformBinary([PACKAGE_DIR, root]) : null;
-	if (platformBinary !== null && existsSync(platformBinary)) return platformBinary;
-
 	const candidates = [
+		...(platformBinary === null ? [] : [platformBinary]),
 		join(PACKAGE_DIR, "node_modules", ".bin", tool),
 		join(root, "node_modules", ".bin", tool),
 	];
-	for (const candidate of candidates) {
-		if (existsSync(candidate)) return candidate;
-	}
-
-	// Fall through to PATH. If it is not there either, the spawn fails and
-	// describeMissing() below explains what was tried.
-	return tool;
-}
-
-/** The error text for a tool that could not be started, naming every path tried. */
-export function describeMissing(tool: ToolName, root: string): string {
-	return (
-		`could not run '${tool}'. Tried $${ENV_OVERRIDE[tool]}, ` +
-		`${join(PACKAGE_DIR, "node_modules", ".bin", tool)}, ` +
-		`${join(root, "node_modules", ".bin", tool)}, and PATH.\n` +
-		`Install it, or set ${ENV_OVERRIDE[tool]} to its path.`
-	);
+	const missingHint =
+		`Tried $${ENV_OVERRIDE[tool]}, ${candidates.join(", ")}, and PATH. ` +
+		`Install ${tool}, or set ${ENV_OVERRIDE[tool]} to its path.`;
+	const result = { bin: candidates.find(existsSync) ?? tool, missingHint };
+	resolved.set(tool, result);
+	return result;
 }

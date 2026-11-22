@@ -23,12 +23,13 @@ type ErosionResult = {
 };
 
 /**
- * Whether `value` breaks `limit`. A null limit means not gated. The gate uses
- * it for a delta against `maxDelta` and for a level against `thresholds`;
- * the report uses it for the verdict it prints, so the two cannot disagree.
+ * Whether a callable counts toward the high-complexity share of erosion. The
+ * erosion sum, the report's offender list and the hot-callable ratchet all use
+ * this one rule, so they cannot disagree about which callables are hot.
+ * A callable with no source lines has no mass, so it never counts.
  */
-export function exceeds(value: number, limit: number | null): boolean {
-	return limit !== null && value > limit;
+export function isHighComplexity(c: Callable): boolean {
+	return c.sloc > 0 && c.complexity > HIGH_COMPLEXITY_CUTOFF;
 }
 
 /** Eq. 2. The square root compresses size so complexity dominates, not raw length. */
@@ -57,7 +58,7 @@ export function computeErosion(callables: Callable[]): ErosionResult {
 		totalMass += m;
 		counted++;
 
-		if (callable.complexity > HIGH_COMPLEXITY_CUTOFF) {
+		if (isHighComplexity(callable)) {
 			highComplexityMass += m;
 			highCount++;
 		}

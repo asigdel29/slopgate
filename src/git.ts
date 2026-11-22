@@ -6,7 +6,7 @@
 // built. Nothing here ever mutates the caller's checkout.
 
 import { rm } from "node:fs/promises";
-import { runTool, withTempDir } from "./process.ts";
+import { runTool, ToolExitError, withTempDir } from "./process.ts";
 
 /**
  * Run git in `cwd` and return its trimmed stdout. git is not one of the pinned
@@ -25,16 +25,18 @@ async function git(args: string[], cwd: string): Promise<string> {
  * attribute every change that landed on the base branch since this one forked
  * to the PR under review.
  *
- * When there is no merge base in the clone, the ref itself is used, with a
+ * When git finds no merge base (exit 1), the ref itself is used, with a
  * warning. A shallow CI checkout of a pull request's merge commit needs this:
  * there the base SHA is the merge base, but the clone has too little history
  * for git to prove it. On a shallow clone of a branch tip the same fallback is
- * wrong, so the warning names the fix.
+ * wrong, so the warning names the fix. Any other failure, such as a bad ref
+ * or a folder that is not a repository (exit 128), is an error.
  */
 export async function resolveBase(ref: string, root: string): Promise<string> {
 	try {
 		return await git(["merge-base", "HEAD", ref], root);
-	} catch {
+	} catch (err) {
+		if (!(err instanceof ToolExitError && err.exitCode === 1)) throw err;
 		console.error(
 			`::warning::no merge base of HEAD and ${ref} in this clone, so ${ref} itself is the base. ` +
 				"That is correct for a pull request's merge commit; elsewhere, fetch more history " +
@@ -42,6 +44,16 @@ export async function resolveBase(ref: string, root: string): Promise<string> {
 		);
 		return await git(["rev-parse", ref], root);
 	}
+}
+
+/**
+ * The path of `root` inside its repository, such as `packages/app/`, or an
+ * empty string at the top. A worktree checks out the whole repository, so the
+ * base must be measured at this same path, or the include globs would match a
+ * different tree than on the head.
+ */
+export function repoPrefix(root: string): Promise<string> {
+	return git(["rev-parse", "--show-prefix"], root);
 }
 
 /**

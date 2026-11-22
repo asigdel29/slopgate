@@ -4,44 +4,25 @@
 // flags, output or an exit code.
 
 import { readdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { buildCallables, ruleKind } from "./callables.ts";
 import { findCloneLines } from "./clones.ts";
-import type {
-	Callable,
-	Dialect,
-	FileMeasurement,
-	Language,
-	SlopConfig,
-	SlopMetrics,
-} from "./config.ts";
-import { DIALECTS, LANGUAGES, PACKAGE_DIR } from "./config.ts";
+import type { Callable, FileMeasurement, Language, SlopConfig, SlopMetrics } from "./config.ts";
+import { LANGUAGES, PACKAGE_DIR } from "./config.ts";
 import { computeErosion, computeVerbosity } from "./metrics.ts";
 import { withTempDir } from "./process.ts";
-import { scan, writeRetargeted } from "./scan.ts";
-import { measureFiles, resolveFiles } from "./sources.ts";
+import type { Dialect } from "./scan.ts";
+import { DIALECTS, dialectRuleDir, scan } from "./scan.ts";
+import { measureFiles, resolveFiles, sourceLineKeys } from "./sources.ts";
 
 /**
- * Where the slop rule pack lives.
- *
- * `SLOP_RULES_DIR` overrides it, which lets a project point at its own rules and
- * — just as importantly — lets the tests exercise the rule-pack path without
- * mutating the shipped pack. Upstream's implementation has the same escape hatch
- * (`AST_GREP_RULES_PATH`).
- *
- * The directory must contain a `VERSION` file and one subdirectory per language.
+ * The rule pack's version from its VERSION file in `rulesDir`. Version 0 turns
+ * the pack off, so verbosity counts clones only. A missing file is an error,
+ * not 0: a wrong SLOP_RULES_DIR would otherwise drop the rule-flagged half with
+ * no word.
  */
-function rulesDir(): string {
-	return process.env.SLOP_RULES_DIR ?? join(PACKAGE_DIR, "rules");
-}
-
-/**
- * The rule pack's version from its VERSION file. Version 0 turns the pack off,
- * so verbosity counts clones only. A missing file is an error, not 0: a wrong
- * SLOP_RULES_DIR would otherwise drop the rule-flagged half with no word.
- */
-async function loadRulePackVersion(): Promise<number> {
-	const path = join(rulesDir(), "VERSION");
+async function loadRulePackVersion(rulesDir: string): Promise<number> {
+	const path = join(rulesDir, "VERSION");
 	const file = Bun.file(path);
 	if (!(await file.exists())) {
 		throw new Error(`no rule pack VERSION at ${path}; check SLOP_RULES_DIR`);
@@ -52,12 +33,12 @@ async function loadRulePackVersion(): Promise<number> {
 }
 
 /**
- * The authored rule files for `language`. A pack with no folder for the
- * language has no rules for it yet, so verbosity counts clone lines only, which
- * is a correct half of Eq. 4. Any other read error is a fault.
+ * The authored rule files for `language` in `rulesDir`. A pack with no folder
+ * for the language has no rules for it yet, so verbosity counts clone lines
+ * only, which is a correct half of Eq. 4. Any other read error is a fault.
  */
-async function rulePackFiles(language: Language): Promise<string[]> {
-	const dir = join(rulesDir(), language);
+async function rulePackFiles(rulesDir: string, language: Language): Promise<string[]> {
+	const dir = join(rulesDir, language);
 	try {
 		return (await readdir(dir)).filter((f) => f.endsWith(".yml")).map((f) => join(dir, f));
 	} catch (err) {
@@ -68,47 +49,49 @@ async function rulePackFiles(language: Language): Promise<string[]> {
 
 /** One dialect's share of a run: its files, and where to read and write. */
 type DialectRun = {
+	/** The language of the files. */
 	language: Language;
+	/** The grammar the files parse with. */
 	dialect: Dialect;
+	/** Paths relative to `root`, all with one of the dialect's extensions. */
 	files: string[];
 	/** A temp folder for re-targeted rules, removed after the run. */
 	workspace: string;
+	/** The repository root. */
 	root: string;
-	rulePack: boolean;
+	/** The rule pack folder, or null when the pack is off (VERSION 0). */
+	rulesDir: string | null;
 };
 
 /** What one dialect contributes to the metrics. */
 type DialectResult = {
+	/** One entry for each file. */
 	measurements: FileMeasurement[];
+	/** The callables in those files. */
 	callables: Callable[];
 	/** Rule-flagged source lines, as `file:line` keys. */
 	flagged: string[];
 };
 
 /**
- * Run the slop rule pack for one dialect and return the flagged `file:line`
- * keys.
+ * Run the slop rule pack in `rulesDir` for one dialect and return the flagged
+ * `file:line` keys.
  *
  * Rules live one-per-file, so they are scanned through a generated ast-grep
  * project config (`ruleDirs`) rather than one subprocess per rule — with a full
  * pack that would be hundreds of spawns.
- *
- * Flagged lines are intersected with source lines for the same reason clone
- * lines are: Eq. 4's denominator counts source lines only.
  */
 async function scanRulePack(
-	run: DialectRun,
+	run: DialectRun & { rulesDir: string },
 	sourceLinesByFile: Map<string, Set<number>>,
 ): Promise<string[]> {
-	const authored = await rulePackFiles(run.language);
+	const authored = await rulePackFiles(run.rulesDir, run.language);
 	if (authored.length === 0) return [];
-
-	const authoredGrammar = run.dialect.idSuffix === "";
-	const ruleDir = authoredGrammar
-		? join(rulesDir(), run.language)
-		: join(run.workspace, `rules-${run.dialect.astGrepLanguage}`);
-	if (!authoredGrammar)
-		await writeRetargeted({ files: authored, dialect: run.dialect, destDir: ruleDir });
+	const ruleDir = await dialectRuleDir({
+		files: authored,
+		dialect: run.dialect,
+		destDir: join(run.workspace, `rules-${run.dialect.astGrepLanguage}`),
+	});
 
 	// A whole rule DIRECTORY can only be scanned through an ast-grep project
 	// config, which takes --config, not --rule. The sgconfig is written to the
@@ -120,36 +103,50 @@ async function scanRulePack(
 	const matches = await scan({ kind: "project", path: sgconfig }, run.files, run.root);
 	// A rule can span several lines; every source line it covers is flagged,
 	// which is what "flagged lines" means in Eq. 4.
-	return matches.flatMap((match) => {
-		const sourceLines = sourceLinesByFile.get(match.file);
-		const keys: string[] = [];
-		for (let line = match.range.start.line; line <= match.range.end.line; line++) {
-			if (sourceLines?.has(line)) keys.push(`${match.file}:${line}`);
-		}
-		return keys;
-	});
+	return matches.flatMap((match) =>
+		sourceLineKeys({
+			file: match.file,
+			sourceLines: sourceLinesByFile.get(match.file),
+			startLine: match.range.start.line,
+			endLine: match.range.end.line,
+		}),
+	);
 }
 
 /**
  * Measure one dialect's files. `.ts` and `.tsx` parse with different grammars,
- * so they cannot share a scan even though they share authored rules: a dialect
- * other than the authored one scans a re-targeted copy.
+ * so they cannot share a scan even though they share authored rules.
  */
 async function measureDialect(run: DialectRun): Promise<DialectResult> {
 	const authored = join(PACKAGE_DIR, "structural", `${run.language}.yml`);
-	const retargetDir = join(run.workspace, `structural-${run.dialect.astGrepLanguage}`);
-	const structural = run.dialect.idSuffix === "" ? authored : join(retargetDir, basename(authored));
-	if (structural !== authored)
-		await writeRetargeted({ files: [authored], dialect: run.dialect, destDir: retargetDir });
+	const structuralDir = await dialectRuleDir({
+		files: [authored],
+		dialect: run.dialect,
+		destDir: join(run.workspace, `structural-${run.dialect.astGrepLanguage}`),
+	});
+	const structural = join(structuralDir, basename(authored));
 
 	const matches = await scan({ kind: "rule", path: structural }, run.files, run.root);
-	const comments = matches.filter((m) => ruleKind(m.ruleId) === "comment");
-	const measurements = await measureFiles(run.files, run.language, comments, run.root);
+	const commentsByFile = new Map<string, Array<[number, number]>>();
+	for (const m of matches.filter((match) => ruleKind(match.ruleId) === "comment")) {
+		const spans = commentsByFile.get(m.file) ?? [];
+		spans.push([m.range.byteOffset.start, m.range.byteOffset.end]);
+		commentsByFile.set(m.file, spans);
+	}
+	const measurements = await measureFiles({
+		files: run.files,
+		language: run.language,
+		commentsByFile,
+		root: run.root,
+	});
 	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
 	return {
 		measurements,
-		callables: buildCallables(matches, measurements, run.language),
-		flagged: run.rulePack ? await scanRulePack(run, sourceLinesByFile) : [],
+		callables: buildCallables({ matches, sourceLinesByFile, language: run.language }),
+		flagged:
+			run.rulesDir === null
+				? []
+				: await scanRulePack({ ...run, rulesDir: run.rulesDir }, sourceLinesByFile),
 	};
 }
 
@@ -161,7 +158,9 @@ function byPosition(a: Callable, b: Callable): number {
 
 /** The metrics, and the callables behind erosion for the report and the ratchet. */
 export type Measurement = {
+	/** The two metrics and their counts: the JSON output. */
 	metrics: SlopMetrics;
+	/** Every measured callable, in file and position order. */
 	callables: Callable[];
 };
 
@@ -169,9 +168,15 @@ export type Measurement = {
  * Measure the repository at `root` with `config`. Throws when an analyser
  * fails or a file cannot be read: a partial scan would give a wrong number
  * that looks like a real one.
+ *
+ * The rule pack comes from `SLOP_RULES_DIR`, which lets a project point at its
+ * own rules and lets the tests use a temporary pack (upstream has the same
+ * override, `AST_GREP_RULES_PATH`), or else from the package. It is read once
+ * here, so the VERSION and the rules of one run come from one folder.
  */
 export async function measure(config: SlopConfig, root: string): Promise<Measurement> {
-	const rulePackVersion = await loadRulePackVersion();
+	const rulesDir = process.env.SLOP_RULES_DIR ?? join(PACKAGE_DIR, "rules");
+	const rulePackVersion = await loadRulePackVersion(rulesDir);
 
 	const parts = await withTempDir("slop-", async (workspace) => {
 		const results: DialectResult[] = [];
@@ -179,12 +184,18 @@ export async function measure(config: SlopConfig, root: string): Promise<Measure
 			const languageConfig = config.languages[language];
 			const languageFiles = languageConfig ? await resolveFiles(languageConfig, root) : [];
 			for (const dialect of DIALECTS[language]) {
-				const files = languageFiles.filter((f) =>
-					dialect.extensions.some((ext) => f.endsWith(ext)),
-				);
+				const files = languageFiles.filter((f) => dialect.extensions.includes(extname(f)));
 				if (files.length === 0) continue;
-				const run = { language, dialect, files, workspace, root, rulePack: rulePackVersion > 0 };
-				results.push(await measureDialect(run));
+				results.push(
+					await measureDialect({
+						language,
+						dialect,
+						files,
+						workspace,
+						root,
+						rulesDir: rulePackVersion > 0 ? rulesDir : null,
+					}),
+				);
 			}
 		}
 		return results;

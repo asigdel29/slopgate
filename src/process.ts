@@ -14,6 +14,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * A tool that ran and exited with a non-zero code. The code lets a caller treat
+ * one exit as an answer, for example `git merge-base` exits 1 when there is no
+ * common ancestor, and every other exit as a fault.
+ */
+export class ToolExitError extends Error {
+	/** The tool's exit code, or null when a signal stopped it. */
+	readonly exitCode: number | null;
+
+	/** A failure of `tool` with `exitCode`, and the tool's own output as the detail. */
+	constructor(message: string, exitCode: number | null) {
+		super(message);
+		this.exitCode = exitCode;
+	}
+}
+
 /** What a finished run wrote to its two streams. */
 type RunResult = { stdout: string; stderr: string };
 
@@ -90,7 +106,7 @@ export function runTool({ bin, args, name: tool, cwd, missingHint }: Run): Promi
 				// jscpd reports failures on stdout, ast-grep on stderr. Include both
 				// rather than guessing which one carries the message.
 				const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-				reject(new Error(`${tool} exited ${code}${detail ? `: ${detail}` : ""}`));
+				reject(new ToolExitError(`${tool} exited ${code}${detail ? `: ${detail}` : ""}`, code));
 				return;
 			}
 			resolve({ stdout, stderr });

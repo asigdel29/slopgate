@@ -6,11 +6,11 @@
 // structural/typescript.yml for the id contract.
 
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
-import type { Dialect } from "./config.ts";
+import { basename, dirname, join } from "node:path";
+import type { Language } from "./config.ts";
 import { runTool } from "./process.ts";
 import { relativeTo } from "./sources.ts";
-import { describeMissing, resolveTool } from "./tools.ts";
+import { resolveTool } from "./tools.ts";
 
 /** A single ast-grep match, narrowed to the fields the engine uses. */
 export type Match = {
@@ -51,11 +51,43 @@ export function retargetRuleText(source: string, targetLanguage: string, idSuffi
 }
 
 /**
- * Write a copy of each rule file in `files` into `destDir`, re-targeted to
- * `dialect`, under the same base name. ast-grep reads a rule's grammar from
- * its `language:` line, so this is how one authored pack runs on .tsx too.
+ * A grammar that a language's rules must run under, and the file extensions
+ * that need it.
+ *
+ * TypeScript needs two: ast-grep treats `.tsx` as a distinct grammar from `.ts`,
+ * so rules authored as `language: typescript` silently match nothing in a `.tsx`
+ * file. Rather than maintain a duplicate rule pack, the engine re-targets the
+ * authored one per dialect at run time (see dialectRuleDir below).
  */
-export async function writeRetargeted({
+export type Dialect = {
+	/** ast-grep's `language:` identifier. */
+	astGrepLanguage: string;
+	/** The file extensions that this grammar parses. */
+	extensions: string[];
+	/**
+	 * Appended to rule ids so a re-targeted pack keeps unique ids. Empty for
+	 * the grammar the rules are authored in, which needs no copy.
+	 */
+	idSuffix: string;
+};
+
+/** The grammars to scan each language with, and which file extensions each one takes. */
+export const DIALECTS: Record<Language, Dialect[]> = {
+	typescript: [
+		{ astGrepLanguage: "typescript", extensions: [".ts", ".mts", ".cts"], idSuffix: "" },
+		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
+	],
+	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
+};
+
+/**
+ * The folder that holds `files`, authored rules from one folder, in the form
+ * that `dialect` can run. For the authored grammar that is their own folder.
+ * For another grammar it is `destDir`, with a re-targeted copy of each file
+ * under the same base name: ast-grep reads a rule's grammar from its
+ * `language:` line, so this is how one authored pack runs on .tsx too.
+ */
+export async function dialectRuleDir({
 	files,
 	dialect,
 	destDir,
@@ -63,7 +95,9 @@ export async function writeRetargeted({
 	files: string[];
 	dialect: Dialect;
 	destDir: string;
-}): Promise<void> {
+}): Promise<string> {
+	const [first] = files;
+	if (dialect.idSuffix === "" && first !== undefined) return dirname(first);
 	await mkdir(destDir, { recursive: true });
 	for (const file of files) {
 		const text = retargetRuleText(
@@ -73,6 +107,7 @@ export async function writeRetargeted({
 		);
 		await writeFile(join(destDir, basename(file)), text, "utf8");
 	}
+	return destDir;
 }
 
 /**
@@ -93,23 +128,22 @@ type RuleSource = { kind: "rule" | "project"; path: string };
  * denominator and the scanned set can never disagree.
  *
  * There is no `--lang` flag: `ast-grep scan` takes the language from each rule's
- * `language:` field, which is what writeRetargeted above changes.
+ * `language:` field, which is what dialectRuleDir above changes.
  */
 export async function scan(source: RuleSource, files: string[], cwd: string): Promise<Match[]> {
 	if (files.length === 0) return [];
 
-	const bin = resolveTool("ast-grep", cwd);
+	const tool = resolveTool("ast-grep", cwd);
 	const flag = source.kind === "project" ? "--config" : "--rule";
 	const matches: Match[] = [];
 
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
 		const batch = files.slice(i, i + BATCH_SIZE);
 		const { stdout, stderr } = await runTool({
-			bin,
+			...tool,
 			args: ["scan", flag, source.path, "--json", ...batch.map((f) => `${cwd}/${f}`)],
 			name: "ast-grep",
 			cwd,
-			missingHint: describeMissing("ast-grep", cwd),
 		});
 
 		// ast-grep exits 0 even when it could not read some of the paths it was

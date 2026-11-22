@@ -8,23 +8,12 @@ import {
 	HIGH_COMPLEXITY_CUTOFF,
 	HUMAN_PANEL_REFERENCE,
 	METRICS,
-	WAIVER,
 } from "./config.ts";
-import type { HotCallable } from "./hot.ts";
-import { exceeds, mass } from "./metrics.ts";
+import { exceeds, fixed, signed } from "./gate.ts";
+import { isHighComplexity, mass } from "./metrics.ts";
 
 /** How many of the most complex callables the report lists. */
 const TOP_OFFENDERS = 10;
-
-/** A metric value, at the precision every line of the report uses. */
-function fixed(value: number): string {
-	return value.toFixed(4);
-}
-
-/** A delta with its sign, so a fall reads as clearly as a rise. */
-function signed(value: number): string {
-	return `${value >= 0 ? "+" : ""}${fixed(value)}`;
-}
 
 /** How many times faster an agent checkpoint moves `metric` than a median human commit. */
 function agentSpeedup(metric: Metric): string {
@@ -64,7 +53,7 @@ function deltaLines(metrics: SlopMetrics, base: SlopMetrics, config: SlopConfig)
 /** The callables that hold the most complexity mass: where to look when erosion fails. */
 function offenderLines(callables: Callable[]): string[] {
 	const offenders = callables
-		.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF && c.sloc > 0)
+		.filter(isHighComplexity)
 		.toSorted((a, b) => mass(b.complexity, b.sloc) - mass(a.complexity, a.sloc))
 		.slice(0, TOP_OFFENDERS);
 	if (offenders.length === 0) return [];
@@ -84,7 +73,7 @@ export function formatReport(
 	metrics: SlopMetrics,
 	config: SlopConfig,
 	callables: Callable[],
-	base: SlopMetrics | null = null,
+	base: SlopMetrics | null,
 ): string {
 	const { detail } = metrics;
 	const lines: string[] = [];
@@ -133,58 +122,4 @@ export function formatReport(
 	lines.push(...offenderLines(callables));
 
 	return lines.join("\n");
-}
-
-/**
- * A GitHub Actions error annotation. Uses the `::error::` workflow command, the
- * CI annotation convention, so a failure surfaces inline in the pull request.
- */
-export function formatFailure(metric: Metric, value: number, ceiling: number): string {
-	return (
-		`::error::${metric} ${fixed(value)} exceeds the ${ceiling} ratchet ceiling — ` +
-		`this change concentrates complexity or adds redundant code. ` +
-		`The ceiling is a one-way ratchet and must not be raised; ` +
-		`reduce ${metric === "erosion" ? "branching in the largest functions" : "duplicated or flagged lines"} instead.`
-	);
-}
-
-/**
- * The primary failure: this change degraded the codebase faster than a human
- * commit typically does.
- */
-export function formatDeltaFailure(
-	metric: Metric,
-	before: number,
-	after: number,
-	limit: number,
-): string {
-	const delta = after - before;
-	const humanRate = DEGRADATION_VELOCITY.humanMedian[metric];
-	return (
-		`::error::${metric} rose ${signed(delta)} (${fixed(before)} -> ${fixed(after)}), ` +
-		`past the ${limit} allowed for one change. That is ${(delta / humanRate).toFixed(1)}x ` +
-		`the median human commit in ${HUMAN_PANEL_REFERENCE.source}. ` +
-		(metric === "erosion"
-			? "Split the new branching into its own function instead of adding another arm to an existing one."
-			: "Factor out the duplicated lines.")
-	);
-}
-
-/**
- * The per-callable failure: one annotation per offending callable, anchored on
- * its line so the pull request's diff view shows it in place.
- */
-export function formatHotCallables(hot: HotCallable[]): string[] {
-	return hot.map((h) => {
-		const what =
-			h.baseComplexity === null
-				? `is new at CC ${h.complexity}`
-				: `grew from CC ${h.baseComplexity} to ${h.complexity}`;
-		return (
-			`::error file=${h.file},line=${h.line}::${h.name ?? "this callable"} ${what}, over the ` +
-			`CC ${HIGH_COMPLEXITY_CUTOFF} cutoff. Move the new branching into its own function ` +
-			`rather than adding it here. If this one is deliberate, put a \`${WAIVER}: <reason>\` ` +
-			"comment on the line above it."
-		);
-	});
 }

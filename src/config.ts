@@ -23,32 +23,6 @@ export const LANGUAGES = ["typescript", "swift"] as const;
 /** One supported language, as a config key. */
 export type Language = (typeof LANGUAGES)[number];
 
-/**
- * A grammar a language's rules must be run under, and the file extensions that
- * need it.
- *
- * TypeScript needs two: ast-grep treats `.tsx` as a distinct grammar from `.ts`,
- * so rules authored as `language: typescript` silently match nothing in a `.tsx`
- * file. Rather than maintain a duplicate rule pack, the engine re-targets the
- * authored one per dialect at run time (see writeRetargeted in scan.ts).
- */
-export type Dialect = {
-	/** ast-grep's `language:` identifier. */
-	astGrepLanguage: string;
-	extensions: string[];
-	/** Appended to rule ids so a re-targeted pack keeps unique ids. */
-	idSuffix: string;
-};
-
-/** The grammars to scan each language with, and which file extensions each one takes. */
-export const DIALECTS: Record<Language, Dialect[]> = {
-	typescript: [
-		{ astGrepLanguage: "typescript", extensions: [".ts", ".mts", ".cts"], idSuffix: "" },
-		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
-	],
-	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
-};
-
 /** Which files of one language to measure. */
 export type LanguageConfig = {
 	/** Globs, relative to the repo root, of files to measure. */
@@ -91,15 +65,18 @@ export type SlopConfig = {
 	calibratedAtRulePackVersion: number;
 	/**
 	 * Gate each callable over the complexity cutoff: with `--base`, one that is new
-	 * or has gained decision points fails the run (see hot.ts). Absent means off,
-	 * so a config written before this rule keeps its behaviour.
+	 * or has gained decision points fails the run (see hot.ts). The loader turns
+	 * an absent key into false, so a config written before this rule keeps its
+	 * behaviour and no caller repeats that default.
 	 */
-	hotCallables?: boolean;
+	hotCallables: boolean;
 };
 
 /** One callable with everything Eq. 2 needs. */
 export type Callable = {
+	/** The path, relative to the repository root. */
 	file: string;
+	/** The language the callable was measured as. */
 	language: Language;
 	/** Byte offsets into the UTF-8 file buffer. */
 	startByte: number;
@@ -119,10 +96,14 @@ export type Callable = {
 
 /** One measured file and its source lines: the input to LOC and to per-callable SLOC. */
 export type FileMeasurement = {
+	/** The path, relative to the repository root. */
 	file: string;
+	/** The language the file was measured as. */
 	language: Language;
 	/** Source lines in the file — the per-file contribution to Eq. 4's LOC. */
 	loc: number;
+	/** All lines, blank and comment lines included, as jscpd counts them. */
+	lineCount: number;
 	/** Zero-based line numbers that are source lines. */
 	sourceLines: Set<number>;
 };
@@ -194,7 +175,7 @@ export const HIGH_COMPLEXITY_CUTOFF = 10;
 export const WAIVER = "slopgate-allow";
 
 /** Top-level keys a config may have. Any other key is a typo, so it is rejected. */
-const CONFIG_KEYS = new Set([
+const CONFIG_KEYS = [
 	"$comment",
 	"$schema",
 	"languages",
@@ -202,11 +183,44 @@ const CONFIG_KEYS = new Set([
 	"thresholds",
 	"hotCallables",
 	"calibratedAtRulePackVersion",
-]);
+];
 
 /** Narrows an unknown JSON value to a plain object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** One line for each key of `section` that is not in `allowed`, named by its full path. */
+function unknownKeys(
+	path: string,
+	section: Record<string, unknown>,
+	allowed: readonly string[],
+): string[] {
+	return Object.keys(section)
+		.filter((key) => !allowed.includes(key))
+		.map((key) => `unknown key \`${path}${key}\` (allowed: ${allowed.join(", ")})`);
+}
+
+/** Whether `value` is an array of strings. */
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** What is wrong with one entry of `languages`, one line for each problem. */
+function languageEntryProblems(name: string, language: unknown): string[] {
+	if (!LANGUAGES.includes(name as Language)) {
+		return [`unknown language '${name}' (supported: ${LANGUAGES.join(", ")})`];
+	}
+	if (!isRecord(language)) return [`languages.${name} must be an object with \`include\``];
+	return [
+		...unknownKeys(`languages.${name}.`, language, ["include", "exclude"]),
+		...(isStringArray(language.include) && language.include.length > 0
+			? []
+			: [`languages.${name}.include must be a non-empty array of globs`]),
+		...(language.exclude === undefined || isStringArray(language.exclude)
+			? []
+			: [`languages.${name}.exclude must be an array of globs`]),
+	];
 }
 
 /** What is wrong with the `languages` section, one line for each problem. */
@@ -214,27 +228,20 @@ function languageProblems(languages: unknown): string[] {
 	if (!isRecord(languages)) return ["`languages` must be an object with at least one language"];
 	const entries = Object.entries(languages);
 	if (entries.length === 0) return ["`languages` is empty — nothing would be measured"];
-	return entries.flatMap(([name, language]) => {
-		if (!LANGUAGES.includes(name as Language)) {
-			return [`unknown language '${name}' (supported: ${LANGUAGES.join(", ")})`];
-		}
-		const include = isRecord(language) ? language.include : undefined;
-		return Array.isArray(include) && include.length > 0
-			? []
-			: [`languages.${name}.include must be a non-empty array of globs`];
-	});
+	return entries.flatMap(([name, language]) => languageEntryProblems(name, language));
 }
 
 /** What is wrong with a `maxDelta` or `thresholds` section, one line for each problem. */
 function limitProblems(group: "maxDelta" | "thresholds", section: unknown): string[] {
 	if (!isRecord(section))
 		return [`\`${group}\` must be an object with \`erosion\` and \`verbosity\``];
-	return METRICS.flatMap((metric) => {
+	const values = METRICS.flatMap((metric) => {
 		const value = section[metric];
 		if (value === null || typeof value === "number") return [];
 		const got = value === undefined ? "undefined — is the key missing or misspelt?" : typeof value;
 		return [`${group}.${metric} must be a number or null (explicitly disabled), got ${got}`];
 	});
+	return [...unknownKeys(`${group}.`, section, METRICS), ...values];
 }
 
 /**
@@ -267,9 +274,7 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 	const config = isRecord(parsed) ? parsed : {};
 
 	const problems = [
-		...Object.keys(config)
-			.filter((key) => !CONFIG_KEYS.has(key))
-			.map((key) => `unknown key \`${key}\` (allowed: ${[...CONFIG_KEYS].join(", ")})`),
+		...unknownKeys("", config, CONFIG_KEYS),
 		...languageProblems(config.languages),
 		...limitProblems("maxDelta", config.maxDelta),
 		...limitProblems("thresholds", config.thresholds),
@@ -284,5 +289,5 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 		throw new Error(`${configPath} is not a usable slop config:\n  - ${problems.join("\n  - ")}`);
 	}
 	// Every field SlopConfig reads was checked above.
-	return config as SlopConfig;
+	return { ...config, hotCallables: config.hotCallables ?? false } as SlopConfig;
 }

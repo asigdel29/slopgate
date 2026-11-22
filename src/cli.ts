@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { loadConfig } from "./config.ts";
 import type { SlopConfig, SlopMetrics } from "./config.ts";
 import { decide } from "./gate.ts";
-import { resolveBase, withWorktree } from "./git.ts";
+import { repoPrefix, resolveBase, withWorktree } from "./git.ts";
 import { findHotCallables } from "./hot.ts";
 import type { HotCallable } from "./hot.ts";
 import { measure } from "./measure.ts";
@@ -17,7 +17,7 @@ import type { Measurement } from "./measure.ts";
 import { formatReport } from "./report.ts";
 
 /** The help text. The only copy of the flag list. */
-export const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json] [--json-out <path>]
+const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json] [--json-out <path>]
 
   --root <dir>      repository to measure (default: current directory)
   --config <path>   config file (default: <root>/slop.config.json)
@@ -34,15 +34,19 @@ slopgate init --help   set up a repository (see its own help)
 Exit codes: 0 pass, 1 the gate failed, 2 an error (bad flag, bad config, tool failure).`;
 
 /** The parsed flags, with every path made absolute. */
-export type Options = {
+type Options = {
+	/** The repository to measure. */
 	root: string;
+	/** The config file. */
 	configPath: string;
+	/** The revision to gate the change against, or null for no delta. */
 	baseRef: string | null;
+	/** Print the report and exit 0. */
 	report: boolean;
+	/** Print the JSON and exit 0. */
 	json: boolean;
 	/** Where to also write the JSON output while still gating, or null. */
 	jsonOut: string | null;
-	help: boolean;
 };
 
 /** Parse the gate's flags. Throws on an unknown flag or a flag with no value. */
@@ -56,7 +60,8 @@ export function parseOptions(argv: string[]): Options {
 			report: { type: "boolean", default: false },
 			json: { type: "boolean", default: false },
 			"json-out": { type: "string" },
-			help: { type: "boolean", short: "h", default: false },
+			// Declared so that parsing accepts it; runGate checks for it first.
+			help: { type: "boolean", short: "h" },
 		},
 	});
 	const root = resolve(values.root);
@@ -67,33 +72,40 @@ export function parseOptions(argv: string[]): Options {
 		report: values.report,
 		json: values.json,
 		jsonOut: values["json-out"] === undefined ? null : resolve(values["json-out"]),
-		help: values.help,
 	};
 }
 
 /**
- * Measure the merge base of `baseRef` in a throwaway worktree. The base tree
- * is measured with THIS revision's engine and config, so a delta only ever
- * reflects source changes, never a change to how the measurement works.
+ * Measure the merge base of `baseRef` in a throwaway worktree, at the same path
+ * inside the repository as `root`. The base tree is measured with THIS
+ * revision's engine and config, so a delta only ever reflects source changes,
+ * never a change to how the measurement works.
  */
 async function measureBase(
 	config: SlopConfig,
 	{ root, baseRef }: { root: string; baseRef: string },
 ): Promise<Measurement> {
 	const ref = await resolveBase(baseRef, root);
-	return withWorktree({ ref, root }, (path) => measure(config, path));
+	const prefix = await repoPrefix(root);
+	return withWorktree({ ref, root }, (path) => measure(config, join(path, prefix)));
 }
 
-/** The head, the base when --base is given, and the hot callables when that rule is on. */
-type Run = { head: Measurement; base: SlopMetrics | null; hot: HotCallable[] | null };
+/** What one run measured. */
+type Run = {
+	/** The tree under test, with its callables. */
+	head: Measurement;
+	/** The merge base's metrics, or null without --base. */
+	base: SlopMetrics | null;
+	/** The callables that break the ratchet, or null when the rule is off or there is no base. */
+	hot: HotCallable[] | null;
+};
 
 /** Measure everything this run needs: the head, then the base and the ratchet if asked. */
 async function measureRun(config: SlopConfig, options: Options): Promise<Run> {
 	const head = await measure(config, options.root);
 	if (options.baseRef === null) return { head, base: null, hot: null };
 	const base = await measureBase(config, { root: options.root, baseRef: options.baseRef });
-	const hot =
-		config.hotCallables === true ? findHotCallables(head.callables, base.callables) : null;
+	const hot = config.hotCallables ? findHotCallables(head.callables, base.callables) : null;
 	return { head, base: base.metrics, hot };
 }
 
@@ -102,11 +114,12 @@ async function measureRun(config: SlopConfig, options: Options): Promise<Run> {
  * a bad flag, a bad config or a tool failure; the caller maps that to 2.
  */
 export async function runGate(argv: string[]): Promise<number> {
-	const options = parseOptions(argv);
-	if (options.help) {
+	// Before parsing, so help works even next to a bad flag.
+	if (argv.includes("--help") || argv.includes("-h")) {
 		console.log(USAGE);
 		return 0;
 	}
+	const options = parseOptions(argv);
 	const config = await loadConfig(options.configPath);
 	const { head, base, hot } = await measureRun(config, options);
 
