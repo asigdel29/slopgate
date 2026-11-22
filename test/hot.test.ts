@@ -151,6 +151,14 @@ describe("callable names and waivers (ast-grep)", () => {
 		]);
 	}, 60_000);
 
+	test("Kotlin: an init block, a function and an expression-bodied getter", async () => {
+		expect(await namesIn("kotlin", "kotlin/names.kt")).toEqual([
+			{ line: 4, name: "init", waived: false },
+			{ line: 8, name: "footer", waived: false },
+			{ line: 13, name: "get", waived: false },
+		]);
+	}, 60_000);
+
 	test("Swift: a computed property, an attributed function, and init", async () => {
 		expect(await namesIn("swift", "swift/names.swift")).toEqual([
 			{ line: 4, name: "body", waived: false },

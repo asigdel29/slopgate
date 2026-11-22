@@ -19,7 +19,7 @@ export const METRICS = ["erosion", "verbosity"] as const;
 export type Metric = (typeof METRICS)[number];
 
 /** Languages the structural rule packs cover. One authored rule file each. */
-export const LANGUAGES = ["typescript", "swift"] as const;
+export const LANGUAGES = ["typescript", "swift", "kotlin"] as const;
 /** One supported language, as a config key. */
 export type Language = (typeof LANGUAGES)[number];
 
