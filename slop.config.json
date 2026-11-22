@@ -1,23 +1,19 @@
 {
-  "$comment": "slopgate measuring itself \u2014 see the `self` CI job. Ceilings stay null: this repo is small enough that a single new branch swings the ratio hard, so the number is reported for dogfooding rather than gated on.",
+  "$comment": "slopgate gates its own source with its own engine (the Slop gate step in CI). maxDelta and hotCallables are the gate. Ceilings stay null: in a repo this small one new branch moves the ratio a lot, so an absolute cap would only measure noise.",
   "languages": {
     "typescript": {
-      "include": [
-        "src/**/*.ts",
-        "bin/**/*.ts"
-      ],
-      "exclude": [
-        "**/node_modules/**"
-      ]
+      "include": ["src/**/*.ts", "bin/**/*.ts"],
+      "exclude": ["**/node_modules/**"]
     }
   },
   "maxDelta": {
     "erosion": 0.0053,
     "verbosity": 0.0022
   },
+  "hotCallables": true,
   "thresholds": {
     "erosion": null,
     "verbosity": null
   },
-  "calibratedAtRulePackVersion": 0
+  "calibratedAtRulePackVersion": 1
 }

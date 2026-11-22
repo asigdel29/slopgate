@@ -7,15 +7,24 @@
 // build. A gate that a typo can disable is worse than no gate, because it looks
 // like one.
 
-import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../bin/slopgate.ts";
+import { loadConfig } from "../src/config.ts";
 
+/** One folder for every config file this suite writes, removed at the end. */
+const dir = await mkdtemp(join(tmpdir(), "slop-cfg-"));
+let written = 0;
+
+afterAll(async () => {
+	await rm(dir, { recursive: true, force: true });
+});
+
+/** Write `contents` to a new config file and return its path. */
 async function configFile(contents: unknown): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "slop-cfg-"));
-	const path = join(dir, "slop.config.json");
+	written += 1;
+	const path = join(dir, `slop.config.${written}.json`);
 	await writeFile(path, typeof contents === "string" ? contents : JSON.stringify(contents), "utf8");
 	return path;
 }
@@ -76,7 +85,11 @@ describe("loadConfig", () => {
 	});
 
 	test("rejects an entirely missing thresholds object", async () => {
-		const path = await configFile({ languages: validLanguages, maxDelta: noDelta, calibratedAtRulePackVersion: 0 });
+		const path = await configFile({
+			languages: validLanguages,
+			maxDelta: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
 		await expect(loadConfig(path)).rejects.toThrow(/`thresholds` must be an object/);
 	});
 
@@ -98,6 +111,51 @@ describe("loadConfig", () => {
 			calibratedAtRulePackVersion: 0,
 		});
 		await expect(loadConfig(path)).rejects.toThrow(/non-empty array of globs/);
+	});
+
+	test("rejects an unknown top-level key, so a misspelt rule cannot stay off", async () => {
+		const path = await configFile({
+			languages: validLanguages,
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			hotcallables: true,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(/unknown key `hotcallables`/);
+	});
+
+	test("rejects an unknown key inside a language and inside a limit section", async () => {
+		const path = await configFile({
+			languages: { typescript: { include: ["src/**/*.ts"], exlude: ["**/*.test.ts"] } },
+			maxDelta: { ...noDelta, erosionn: 0.1 },
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(
+			/languages\.typescript\.exlude(.|\n)*maxDelta\.erosionn/,
+		);
+	});
+
+	test("rejects an exclude that is not an array of globs", async () => {
+		const path = await configFile({
+			languages: { typescript: { include: ["src/**/*.ts"], exclude: "dist/**" } },
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).rejects.toThrow(/exclude must be an array of globs/);
+	});
+
+	test("allows $comment and $schema", async () => {
+		const path = await configFile({
+			$comment: "why the limits are what they are",
+			$schema: "./schema.json",
+			languages: validLanguages,
+			maxDelta: noDelta,
+			thresholds: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
+		await expect(loadConfig(path)).resolves.toBeDefined();
 	});
 
 	test("reports every problem at once, not just the first", async () => {

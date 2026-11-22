@@ -5,12 +5,12 @@
 // renamed identifiers, which is what "structural" means) and covers both
 // TypeScript and Swift with one tool.
 
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { resolveTool } from "./bin.ts";
-import { runTool } from "./process.ts";
 import type { FileMeasurement } from "./config.ts";
+import { runTool, withTempDir } from "./process.ts";
+import { relativeTo, sourceLineKeys } from "./sources.ts";
+import { resolveTool } from "./tools.ts";
 
 /**
  * Clone-detection sensitivity. Pinned explicitly rather than left to jscpd's
@@ -39,20 +39,22 @@ export async function findCloneLines(
 	root: string,
 ): Promise<Set<string>> {
 	const cloneLines = new Set<string>();
-	if (measurements.length === 0) return cloneLines;
+	// jscpd skips each file shorter than --min-lines, and when it skips them all
+	// it exits 0 and writes no report. Leave those files out here instead, so
+	// a missing report is always a fault. The result is the same.
+	const eligible = measurements.filter((m) => m.lineCount >= MIN_LINES);
+	if (eligible.length === 0) return cloneLines;
 
-	const reportDir = await mkdtemp(join(tmpdir(), "slop-jscpd-"));
-	try {
+	const report = await withTempDir("slop-jscpd-", async (reportDir) => {
 		// The whole file list goes in one invocation, deliberately unbatched:
 		// clone detection is inherently cross-file, so splitting it would drop
 		// every clone spanning a batch boundary. That makes argv length a real
 		// ceiling on repository size; runTool reports E2BIG as itself rather than
 		// as a missing-tool error.
-		await runTool(
-			"jscpd",
-			resolveTool("jscpd", root),
-			[
-				...measurements.map((m) => m.file),
+		await runTool({
+			...resolveTool("jscpd", root),
+			args: [
+				...eligible.map((m) => m.file),
 				"--reporters",
 				"json",
 				"--output",
@@ -63,31 +65,32 @@ export async function findCloneLines(
 				String(MIN_TOKENS),
 				"--silent",
 			],
-			{ cwd: root, root },
-		);
-
-		const raw = await readFile(join(reportDir, "jscpd-report.json"), "utf8");
-		const report = JSON.parse(raw) as JscpdReport;
-
-		const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
-
-		for (const duplicate of report.duplicates ?? []) {
-			for (const ref of [duplicate.firstFile, duplicate.secondFile]) {
-				// jscpd paths may come back absolute or root-relative depending on
-				// how it resolved the input; normalise before keying.
-				const file = ref.name.startsWith(`${root}/`) ? ref.name.slice(root.length + 1) : ref.name;
-				const sourceLines = sourceLinesByFile.get(file);
-				if (!sourceLines) continue;
-
-				// jscpd lines are 1-based and inclusive.
-				for (let line = ref.start; line <= ref.end; line++) {
-					const zeroBased = line - 1;
-					if (sourceLines.has(zeroBased)) cloneLines.add(`${file}:${zeroBased}`);
-				}
-			}
+			cwd: root,
+		});
+		const path = join(reportDir, "jscpd-report.json");
+		const text = await readFile(path, "utf8");
+		try {
+			return JSON.parse(text) as JscpdReport;
+		} catch (err) {
+			throw new Error(`jscpd wrote an unreadable report at ${path}: ${(err as Error).message}`, {
+				cause: err,
+			});
 		}
-	} finally {
-		await rm(reportDir, { recursive: true, force: true });
+	});
+
+	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
+	for (const duplicate of report.duplicates ?? []) {
+		for (const ref of [duplicate.firstFile, duplicate.secondFile]) {
+			const file = relativeTo(root, ref.name);
+			// jscpd lines are 1-based and inclusive.
+			const keys = sourceLineKeys({
+				file,
+				sourceLines: sourceLinesByFile.get(file),
+				startLine: ref.start - 1,
+				endLine: ref.end - 1,
+			});
+			for (const key of keys) cloneLines.add(key);
+		}
 	}
 
 	return cloneLines;

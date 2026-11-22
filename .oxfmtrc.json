@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": true,
+  "printWidth": 100,
+  "ignorePatterns": ["test/fixtures/**", "bun.lock"],
+  "overrides": [
+    { "files": ["*.json", "*.jsonc", "*.md", "*.yml"], "options": { "useTabs": false } }
+  ]
+}

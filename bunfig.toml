@@ -1,0 +1,4 @@
+# Test runner settings. Coverage counts source files only, so a test file
+# never raises the number that the coverage gate reads.
+[test]
+coverageSkipTestFiles = true

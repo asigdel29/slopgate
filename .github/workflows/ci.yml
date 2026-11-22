@@ -1,3 +1,5 @@
+# CI for slopgate. The static job runs every step even after a failure, so one
+# run lists every problem. The test job runs the suites and the coverage floor.
 name: CI
 
 on:
@@ -13,26 +15,74 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  static:
+    name: Static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge base must be in the clone, or the gate cannot measure it.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # The integration tests shell out to the real ast-grep and jscpd against
-      # the fixtures, so this also proves the pinned analysers work on Linux —
-      # the platform CI actually runs on, which is not where they are authored.
-      - run: bun test
-      - run: bun run typecheck
+      - name: Format
+        if: ${{ !cancelled() }}
+        run: bun run fmt:check
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: bun run lint
+      - name: Typecheck
+        if: ${{ !cancelled() }}
+        run: bun run typecheck
+      - name: Unused code (knip)
+        if: ${{ !cancelled() }}
+        run: bun run knip
+      # Dogfood: slopgate gates its own source with its own engine. The gate
+      # measures a pull request against its merge base. A push to main has no
+      # reliable base (the "before" SHA can be all zeros or rewritten), so
+      # main gets the report only.
+      - name: Slop gate
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        run: bun bin/slopgate.ts --base "${{ github.event.pull_request.base.sha }}" --json-out slop-metrics.json
+      - name: Slop report
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: bun run self --json-out slop-metrics.json
+      - name: Upload slop metrics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slop-metrics
+          path: slop-metrics.json
+          if-no-files-found: ignore
+          retention-days: 90
 
-  self:
-    name: Measure itself
+  test:
+    name: Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # Dogfooding: a tool that gates other repositories on erosion should be
-      # able to report its own number without falling over.
-      - run: bun bin/slopgate.ts --report
+      # The suites call the real ast-grep and jscpd on the fixtures, so this
+      # also proves that the pinned analysers work on Linux.
+      - name: Tests and coverage floor
+        run: bun run coverage
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # No license key is necessary for a repository on a personal account.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,37 @@
+# Slop gate for a pull request. `slopgate init` copies this file to
+# .github/workflows/slopgate.yml. It fails a change that makes erosion or
+# verbosity worse by more than maxDelta in slop.config.json.
+name: Slop gate
+
+on:
+  pull_request:
+
+concurrency:
+  group: slopgate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  slopgate:
+    name: Slop gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge base must be in the clone, or the gate cannot measure it.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - run: bun install --frozen-lockfile
+      - name: Slop gate
+        run: bunx slopgate --base "${{ github.event.pull_request.base.sha }}" --json-out slop-metrics.json
+      - name: Upload slop metrics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: slop-metrics
+          path: slop-metrics.json
+          if-no-files-found: ignore
+          retention-days: 90

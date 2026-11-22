@@ -1,0 +1,28 @@
+# Dependency version updates, once a month.
+#
+# Minor and patch updates arrive grouped in one PR for each ecosystem. Majors
+# arrive one at a time, because each major can need its own migration.
+# The lint tools have their own group: a minor can change what the gate
+# reports, so a bump that needs work must not hold up the safe bumps.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      lint-tooling:
+        patterns: ["oxfmt", "oxlint", "knip"]
+        update-types: ["minor", "patch"]
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  # The actions are pinned by commit SHA. Dependabot moves the SHA and the
+  # version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

@@ -4,7 +4,7 @@
 # These are NOT slop rules: nothing here flags a problem. They exist so a single
 # `ast-grep scan` pass yields everything the engine needs — where the callables
 # are, where the decision points are, and where the comments are. Rule ids carry
-# the meaning and are parsed by engine/callables.ts:
+# the meaning and are parsed by src/callables.ts:
 #
 #   callable-*   a callable whose complexity mass we measure
 #   dp-*         a McCabe decision point (CC = 1 + count, attributed to the
@@ -22,7 +22,7 @@
 # (`xs.map(x => …)`) is deliberately not matched: its decision points fold into
 # the enclosing named callable instead of registering as a separate near-zero-CC
 # entry. Radon treats Python lambdas the same way, so this follows the paper
-# rather than departing from it. See engine/callables.ts.
+# rather than departing from it. See src/callables.ts.
 id: callable-function-declaration
 language: typescript
 severity: hint
