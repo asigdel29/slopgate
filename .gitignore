@@ -1,2 +1,8 @@
 node_modules/
 *.log
+coverage/
+slop-metrics.json
+# Share the agent rules and skills; keep local agent state out of git.
+.claude/*
+!.claude/rules/
+!.claude/skills/

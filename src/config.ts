@@ -1,39 +1,29 @@
 // Configuration + shared types for the slop gate.
 //
 // The engine itself is repo-agnostic: everything repo-specific (which files to
-// measure, what the ratchet ceilings are) lives in scripts/slop.config.json, so
+// measure, what the ratchet ceilings are) lives in the repository's slop.config.json, so
 // this directory stays byte-identical wherever it is vendored.
+
+import { dirname } from "node:path";
+
+/**
+ * Package root — where structural/, rules/ and the kit live. Resolved from this
+ * file rather than the working directory, so the tool can measure a repository
+ * nowhere near its own install location.
+ */
+export const PACKAGE_DIR = dirname(import.meta.dir);
+
+/** The two metrics, in report order. */
+export const METRICS = ["erosion", "verbosity"] as const;
+/** One of the two metrics. */
+export type Metric = (typeof METRICS)[number];
 
 /** Languages the structural rule packs cover. One authored rule file each. */
 export const LANGUAGES = ["typescript", "swift", "kotlin"] as const;
+/** One supported language, as a config key. */
 export type Language = (typeof LANGUAGES)[number];
 
-/**
- * A grammar a language's rules must be run under, and the file extensions that
- * need it.
- *
- * TypeScript needs two: ast-grep treats `.tsx` as a distinct grammar from `.ts`,
- * so rules authored as `language: typescript` silently match nothing in a `.tsx`
- * file. Rather than maintain a duplicate rule pack, the engine re-targets the
- * authored one per dialect at run time (see scan.ts:retargetRules).
- */
-export type Dialect = {
-	/** ast-grep's `language:` identifier. */
-	astGrepLanguage: string;
-	extensions: string[];
-	/** Appended to rule ids so a re-targeted pack keeps unique ids. */
-	idSuffix: string;
-};
-
-export const DIALECTS: Record<Language, Dialect[]> = {
-	typescript: [
-		{ astGrepLanguage: "typescript", extensions: [".ts"], idSuffix: "" },
-		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
-	],
-	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
-	kotlin: [{ astGrepLanguage: "kotlin", extensions: [".kt"], idSuffix: "" }],
-};
-
+/** Which files of one language to measure. */
 export type LanguageConfig = {
 	/** Globs, relative to the repo root, of files to measure. */
 	include: string[];
@@ -41,6 +31,7 @@ export type LanguageConfig = {
 	exclude?: string[];
 };
 
+/** One repository's slop.config.json, after validation. */
 export type SlopConfig = {
 	languages: Partial<Record<Language, LanguageConfig>>;
 	/**
@@ -53,10 +44,7 @@ export type SlopConfig = {
 	 *
 	 * `null` disables the delta check for that metric.
 	 */
-	maxDelta: {
-		erosion: number | null;
-		verbosity: number | null;
-	};
+	maxDelta: Record<Metric, number | null>;
 	/**
 	 * Optional absolute backstop. Lower is better, so these only ever move DOWN.
 	 * `null` — the default — means no absolute cap.
@@ -66,10 +54,7 @@ export type SlopConfig = {
 	 * its own contribution. That is why it is not the primary mechanism. Use it
 	 * only as a catastrophic-drift backstop, set far above the current value.
 	 */
-	thresholds: {
-		erosion: number | null;
-		verbosity: number | null;
-	};
+	thresholds: Record<Metric, number | null>;
 	/**
 	 * Which rule-pack version the thresholds above were calibrated against.
 	 * Adding slop rules can only raise verbosity, so a mismatch against
@@ -80,15 +65,18 @@ export type SlopConfig = {
 	calibratedAtRulePackVersion: number;
 	/**
 	 * Gate each callable over the complexity cutoff: with `--base`, one that is new
-	 * or has gained decision points fails the run (see hot.ts). Absent means off,
-	 * so a config written before this rule keeps its behaviour.
+	 * or has gained decision points fails the run (see hot.ts). The loader turns
+	 * an absent key into false, so a config written before this rule keeps its
+	 * behaviour and no caller repeats that default.
 	 */
-	hotCallables?: boolean;
+	hotCallables: boolean;
 };
 
 /** One callable with everything Eq. 2 needs. */
 export type Callable = {
+	/** The path, relative to the repository root. */
 	file: string;
+	/** The language the callable was measured as. */
 	language: Language;
 	/** Byte offsets into the UTF-8 file buffer. */
 	startByte: number;
@@ -106,15 +94,21 @@ export type Callable = {
 	waived: boolean;
 };
 
+/** One measured file and its source lines: the input to LOC and to per-callable SLOC. */
 export type FileMeasurement = {
+	/** The path, relative to the repository root. */
 	file: string;
+	/** The language the file was measured as. */
 	language: Language;
 	/** Source lines in the file — the per-file contribution to Eq. 4's LOC. */
 	loc: number;
+	/** All lines, blank and comment lines included, as jscpd counts them. */
+	lineCount: number;
 	/** Zero-based line numbers that are source lines. */
 	sourceLines: Set<number>;
 };
 
+/** The two metrics for one tree, with the counts behind them. This is the JSON shape. */
 export type SlopMetrics = {
 	erosion: number;
 	verbosity: number;
@@ -140,6 +134,7 @@ export type SlopMetrics = {
  * would be a category error. The gate ratchets against the repo's own history.
  */
 export const HUMAN_PANEL_REFERENCE = {
+	repos: 473,
 	erosion: { mean: 0.34, sd: 0.22 },
 	verbosity: { mean: 0.19, sd: 0.11 },
 	agentCheckpoints: { erosion: 0.68, verbosity: 0.44 },
@@ -178,3 +173,129 @@ export const HIGH_COMPLEXITY_CUTOFF = 10;
  * ratchet (see hot.ts). A comment, so the exception is visible in review.
  */
 export const WAIVER = "slopgate-allow";
+
+/** Top-level keys a config may have. Any other key is a typo, so it is rejected. */
+const CONFIG_KEYS = [
+	"$comment",
+	"$schema",
+	"languages",
+	"maxDelta",
+	"thresholds",
+	"hotCallables",
+	"calibratedAtRulePackVersion",
+];
+
+/** Narrows an unknown JSON value to a plain object. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** One line for each key of `section` that is not in `allowed`, named by its full path. */
+function unknownKeys({
+	path,
+	section,
+	allowed,
+}: {
+	path: string;
+	section: Record<string, unknown>;
+	allowed: readonly string[];
+}): string[] {
+	return Object.keys(section)
+		.filter((key) => !allowed.includes(key))
+		.map((key) => `unknown key \`${path}${key}\` (allowed: ${allowed.join(", ")})`);
+}
+
+/** Whether `value` is an array of strings. */
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** What is wrong with one entry of `languages`, one line for each problem. */
+function languageEntryProblems(name: string, language: unknown): string[] {
+	if (!LANGUAGES.includes(name as Language)) {
+		return [`unknown language '${name}' (supported: ${LANGUAGES.join(", ")})`];
+	}
+	if (!isRecord(language)) return [`languages.${name} must be an object with \`include\``];
+	return [
+		...unknownKeys({
+			path: `languages.${name}.`,
+			section: language,
+			allowed: ["include", "exclude"],
+		}),
+		...(isStringArray(language.include) && language.include.length > 0
+			? []
+			: [`languages.${name}.include must be a non-empty array of globs`]),
+		...(language.exclude === undefined || isStringArray(language.exclude)
+			? []
+			: [`languages.${name}.exclude must be an array of globs`]),
+	];
+}
+
+/** What is wrong with the `languages` section, one line for each problem. */
+function languageProblems(languages: unknown): string[] {
+	if (!isRecord(languages)) return ["`languages` must be an object with at least one language"];
+	const entries = Object.entries(languages);
+	if (entries.length === 0) return ["`languages` is empty — nothing would be measured"];
+	return entries.flatMap(([name, language]) => languageEntryProblems(name, language));
+}
+
+/** What is wrong with a `maxDelta` or `thresholds` section, one line for each problem. */
+function limitProblems(group: "maxDelta" | "thresholds", section: unknown): string[] {
+	if (!isRecord(section))
+		return [`\`${group}\` must be an object with \`erosion\` and \`verbosity\``];
+	const values = METRICS.flatMap((metric) => {
+		const value = section[metric];
+		if (value === null || typeof value === "number") return [];
+		const got = value === undefined ? "undefined — is the key missing or misspelt?" : typeof value;
+		return [`${group}.${metric} must be a number or null (explicitly disabled), got ${got}`];
+	});
+	return [...unknownKeys({ path: `${group}.`, section, allowed: METRICS }), ...values];
+}
+
+/**
+ * Read and VALIDATE the config at `configPath`. Throws one error that lists
+ * every problem, so a user fixes them in one pass.
+ *
+ * Validation is not ceremony here. A missing or misspelled key yields
+ * `undefined`, and `undefined` compares false against every ceiling test — so
+ * an unvalidated typo silently disables the gate and reports a green build on a
+ * codebase nothing measured. A gate that a typo can switch off is worse than no
+ * gate, because it looks like one. For the same reason an unknown top-level key
+ * is an error, not ignored: `"hotcallables": true` would leave the rule off.
+ */
+export async function loadConfig(configPath: string): Promise<SlopConfig> {
+	const file = Bun.file(configPath);
+	if (!(await file.exists())) {
+		throw new Error(
+			`missing config at ${configPath}\n` +
+				"Every repository needs its own: which files to measure, and the ratchet " +
+				"ceilings. Run `slopgate init`, or see examples/slop.config.json.",
+		);
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = await file.json();
+	} catch (err) {
+		throw new Error(`${configPath} is not valid JSON: ${(err as Error).message}`, { cause: err });
+	}
+	const config = isRecord(parsed) ? parsed : {};
+
+	const problems = [
+		...unknownKeys({ path: "", section: config, allowed: CONFIG_KEYS }),
+		...languageProblems(config.languages),
+		...limitProblems("maxDelta", config.maxDelta),
+		...limitProblems("thresholds", config.thresholds),
+		...(config.hotCallables === undefined || typeof config.hotCallables === "boolean"
+			? []
+			: ["`hotCallables` must be true, false, or absent (off)"]),
+		...(typeof config.calibratedAtRulePackVersion === "number"
+			? []
+			: ["`calibratedAtRulePackVersion` must be a number"]),
+	];
+	if (problems.length > 0) {
+		throw new Error(`${configPath} is not a usable slop config:\n  - ${problems.join("\n  - ")}`);
+	}
+	// Every field SlopConfig reads was checked above.
+	return { ...config, hotCallables: config.hotCallables ?? false } as SlopConfig;
+}

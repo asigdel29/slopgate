@@ -1,9 +1,8 @@
 // Tests for the slop rule pack path — the rule-flagged half of Eq. 4.
 //
-// This path is dormant in the shipped package (rules/VERSION is 0, the rule
-// directories are empty), which is exactly why it needs its own tests: nothing
-// else exercises it, so a break here stays invisible until the first rule pack
-// lands and silently contributes nothing to verbosity.
+// These tests use a small temporary pack, not the shipped one, so they check
+// the scan path itself: a break here would make every rule contribute nothing
+// to verbosity, with no error.
 //
 // A real defect this file exists to prevent: the pack is scanned through an
 // ast-grep *project config* (`ruleDirs:`), which takes `--config`. Passing it to
@@ -14,12 +13,12 @@
 // touching the shipped one.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Language, SlopConfig } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
+import { retargetRuleText } from "../src/scan.ts";
+import { configFor } from "./helpers.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
 const TIMEOUT_MS = 60_000;
@@ -90,15 +89,6 @@ afterAll(async () => {
 	await rm(rulesDir, { recursive: true, force: true });
 });
 
-function configFor(language: Language, include: string[]): SlopConfig {
-	return {
-		languages: { [language]: { include, exclude: [] } },
-		maxDelta: { erosion: null, verbosity: null },
-		thresholds: { erosion: null, verbosity: null },
-		calibratedAtRulePackVersion: 1,
-	};
-}
-
 describe("rule pack", () => {
 	test(
 		"a matching rule contributes flagged lines to verbosity",
@@ -120,10 +110,7 @@ describe("rule pack", () => {
 	test(
 		"the pack runs for Swift too",
 		async () => {
-			const { metrics } = await measure(
-				configFor("swift", ["swift/complexity.swift"]),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("swift", ["swift/complexity.swift"]), FIXTURES);
 			// branching() has exactly one guard statement.
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
@@ -134,10 +121,7 @@ describe("rule pack", () => {
 		"the pack runs for Kotlin too",
 		async () => {
 			// complexity.kt contains several `if` expressions.
-			const { metrics } = await measure(
-				configFor("kotlin", ["kotlin/complexity.kt"]),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("kotlin", ["kotlin/complexity.kt"]), FIXTURES);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,
@@ -149,10 +133,7 @@ describe("rule pack", () => {
 			// view.tsx has two ternaries. They only match if the authored
 			// `language: typescript` pack is re-targeted to the tsx grammar — the
 			// same dialect problem the structural rules have, on a second code path.
-			const { metrics } = await measure(
-				configFor("typescript", ["typescript/view.tsx"]),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("typescript", ["typescript/view.tsx"]), FIXTURES);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,
@@ -173,4 +154,34 @@ describe("rule pack", () => {
 		},
 		TIMEOUT_MS,
 	);
+});
+
+/** The re-targeted TypeScript dialect: the .tsx grammar. */
+const TSX = { astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" };
+
+describe("retargetRuleText", () => {
+	const authored = [
+		"id: dp-if",
+		"language: typescript",
+		"severity: hint",
+		"rule:",
+		"  kind: if_statement",
+	].join("\n");
+
+	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
+		const out = retargetRuleText(authored, TSX);
+		expect(out).toContain("id: dp-if-tsx");
+		expect(out).toContain("language: tsx");
+		// The rule body itself must be untouched.
+		expect(out).toContain("  kind: if_statement");
+	});
+
+	test("leaves indented keys alone, so only top-level fields are rewritten", () => {
+		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join(
+			"\n",
+		);
+		const out = retargetRuleText(nested, TSX);
+		expect(out).toContain("    language: nope");
+		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);
+	});
 });

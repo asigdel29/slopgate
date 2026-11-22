@@ -10,16 +10,24 @@
 // Reference: arXiv:2603.24755, cross-checked against upstream's
 // src/slop_code/metrics/checkpoint/mass.py.
 
-import type { Callable } from "./config.ts";
+import type { Callable, SlopMetrics } from "./config.ts";
 import { HIGH_COMPLEXITY_CUTOFF } from "./config.ts";
 
-export type ErosionResult = {
-	erosion: number;
-	totalMass: number;
-	highComplexityMass: number;
-	callables: number;
-	highComplexityCallables: number;
-};
+/** Eq. 3 and the sums and counts behind it, as the JSON `detail` names them. */
+type ErosionResult = { erosion: number } & Pick<
+	SlopMetrics["detail"],
+	"callables" | "highComplexityCallables" | "totalMass" | "highComplexityMass"
+>;
+
+/**
+ * Whether a callable counts toward the high-complexity share of erosion. The
+ * erosion sum, the report's offender list and the hot-callable ratchet all use
+ * this one rule, so they cannot disagree about which callables are hot.
+ * A callable with no source lines has no mass, so it never counts.
+ */
+export function isHighComplexity(c: Callable): boolean {
+	return c.sloc > 0 && c.complexity > HIGH_COMPLEXITY_CUTOFF;
+}
 
 /** Eq. 2. The square root compresses size so complexity dominates, not raw length. */
 export function mass(complexity: number, sloc: number): number {
@@ -47,7 +55,7 @@ export function computeErosion(callables: Callable[]): ErosionResult {
 		totalMass += m;
 		counted++;
 
-		if (callable.complexity > HIGH_COMPLEXITY_CUTOFF) {
+		if (isHighComplexity(callable)) {
 			highComplexityMass += m;
 			highCount++;
 		}
@@ -58,20 +66,18 @@ export function computeErosion(callables: Callable[]): ErosionResult {
 		// Zero is the honest answer and matches upstream returning 0.0 for an
 		// empty symbol set.
 		erosion: totalMass > 0 ? highComplexityMass / totalMass : 0,
-		totalMass,
-		highComplexityMass,
 		callables: counted,
 		highComplexityCallables: highCount,
+		totalMass,
+		highComplexityMass,
 	};
 }
 
-export type VerbosityResult = {
-	verbosity: number;
-	flaggedLines: number;
-	cloneLines: number;
-	unionLines: number;
-	loc: number;
-};
+/** Eq. 4 and the line counts behind it, as the JSON `detail` names them. */
+type VerbosityResult = { verbosity: number } & Pick<
+	SlopMetrics["detail"],
+	"loc" | "flaggedLines" | "cloneLines" | "unionLines"
+>;
 
 /**
  * Eq. 4 — the fraction of source lines that are either rule-flagged or
@@ -85,19 +91,21 @@ export type VerbosityResult = {
  * Both sets are keyed `file:line`, so dedup is per physical line rather than per
  * line number — two files sharing a line number stay distinct.
  */
-export function computeVerbosity(
-	flaggedLines: Set<string>,
-	cloneLines: Set<string>,
-	loc: number,
-): VerbosityResult {
-	const union = new Set<string>(flaggedLines);
-	for (const line of cloneLines) union.add(line);
-
+export function computeVerbosity({
+	flaggedLines,
+	cloneLines,
+	loc,
+}: {
+	flaggedLines: Set<string>;
+	cloneLines: Set<string>;
+	loc: number;
+}): VerbosityResult {
+	const union = flaggedLines.union(cloneLines);
 	return {
 		verbosity: loc > 0 ? union.size / loc : 0,
+		loc,
 		flaggedLines: flaggedLines.size,
 		cloneLines: cloneLines.size,
 		unionLines: union.size,
-		loc,
 	};
 }

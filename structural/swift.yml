@@ -48,7 +48,7 @@ rule:
 # Computed properties, which is how SwiftUI's `var body: some View { … }` parses.
 # Counting `body` as a callable is deliberate — it is where SwiftUI view
 # complexity actually accumulates, so excluding it would blind the metric to the
-# most likely place for erosion in this codebase.
+# most likely place for erosion in a SwiftUI codebase.
 id: callable-computed-property
 language: swift
 severity: hint

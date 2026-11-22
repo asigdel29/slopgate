@@ -10,7 +10,7 @@
     "with `--base <the PR's base ref>` and it compares the merge base against the",
     "head. The defaults are the paper's median HUMAN per-commit velocity, so the",
     "gate asks whether a change degrades the codebase faster than a person",
-    "typically would. Agent checkpoints in the paper move 5x and ~7x faster.",
+    "typically would. Agent checkpoints in the paper move about 5x and 6.5x faster.",
     "",
     "thresholds is an OPTIONAL absolute backstop, normally null. An absolute cap on",
     "a whole-repo ratio is a one-time budget, not a per-change allowance: the first",
@@ -18,10 +18,13 @@
     "contribution. Use it only for catastrophic drift, set far above today's value.",
     "Never put the paper's human-panel means here: those describe Python repos.",
     "",
-    "calibratedAtRulePackVersion must match rules/VERSION. Adding slop rules can",
-    "only push verbosity up, so a stale value means the ceiling is measuring",
-    "something different from what it was set against, and the gate refuses to",
-    "compare rather than reporting a meaningless regression."
+    "hotCallables fails a change that adds a function over CC 10, or adds branches",
+    "to one, however small its effect on the ratio. It needs --base, like maxDelta.",
+    "",
+    "calibratedAtRulePackVersion records the rules/VERSION that the thresholds were",
+    "set against. It is checked only when a threshold is set: adding slop rules can",
+    "only push verbosity up, so an absolute ceiling from an older pack measures",
+    "something different. A delta is immune, because base and head use one pack."
   ],
   "languages": {
     "typescript": {
@@ -37,9 +40,10 @@
     "erosion": 0.0053,
     "verbosity": 0.0022
   },
+  "hotCallables": true,
   "thresholds": {
     "erosion": null,
     "verbosity": null
   },
-  "calibratedAtRulePackVersion": 0
+  "calibratedAtRulePackVersion": 1
 }

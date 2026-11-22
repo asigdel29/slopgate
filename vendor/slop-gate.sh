@@ -6,9 +6,9 @@
 # already-complex functions, and verbosity, the fraction of source lines that
 # are duplicated or flagged as wasteful.
 #
-# This is the sibling of scripts/coverage-gate.sh and follows the same
-# discipline, with one inversion: coverage has a FLOOR that only rises, these
-# have CEILINGS that only fall. Lower is better for both metrics.
+# It follows the same discipline as a coverage ratchet, with one inversion:
+# coverage has a FLOOR that only rises, these have CEILINGS that only fall.
+# Lower is better for both metrics.
 #
 # The ceilings are NOT in this script — they live in scripts/slop.config.json
 # alongside the file globs, because the engine needs them to render its report

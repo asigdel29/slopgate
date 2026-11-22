@@ -5,11 +5,12 @@
 // the slop-rule hits for Eq. 4. Rule ids carry the meaning — see
 // structural/typescript.yml for the id contract.
 
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { resolveTool } from "./bin.ts";
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import type { Language } from "./config.ts";
 import { runTool } from "./process.ts";
+import { relativeTo } from "./sources.ts";
+import { resolveTool } from "./tools.ts";
 
 /** A single ast-grep match, narrowed to the fields the engine uses. */
 export type Match = {
@@ -34,54 +35,76 @@ export type Match = {
  */
 const BATCH_SIZE = 400;
 
-export function retargetRuleText(source: string, targetLanguage: string, idSuffix: string): string {
+/**
+ * Rewrite one rule file's text for another grammar: the `language:` line, and
+ * a suffix on each `id:` so a re-targeted pack keeps unique ids.
+ */
+export function retargetRuleText(source: string, dialect: Dialect): string {
 	return source
 		.split("\n")
 		.map((line) => {
-			if (line.startsWith("language:")) return `language: ${targetLanguage}`;
-			if (line.startsWith("id:")) return `${line.trimEnd()}${idSuffix}`;
+			if (line.startsWith("language:")) return `language: ${dialect.astGrepLanguage}`;
+			if (line.startsWith("id:")) return `${line.trimEnd()}${dialect.idSuffix}`;
 			return line;
 		})
 		.join("\n");
 }
 
-/** Re-target a single rule file into `destDir`, returning the new path. */
-export async function retargetRules(
-	ruleFile: string,
-	targetLanguage: string,
-	idSuffix: string,
-	destDir: string,
-): Promise<string> {
-	const rewritten = retargetRuleText(await Bun.file(ruleFile).text(), targetLanguage, idSuffix);
-	const target = join(destDir, basename(ruleFile));
-	await writeFile(target, rewritten, "utf8");
-	return target;
-}
+/**
+ * A grammar that a language's rules must run under, and the file extensions
+ * that need it.
+ *
+ * TypeScript needs two: ast-grep treats `.tsx` as a distinct grammar from `.ts`,
+ * so rules authored as `language: typescript` silently match nothing in a `.tsx`
+ * file. Rather than maintain a duplicate rule pack, the engine re-targets the
+ * authored one per dialect at run time (see dialectRuleDir below).
+ */
+export type Dialect = {
+	/** ast-grep's `language:` identifier. */
+	astGrepLanguage: string;
+	/** The file extensions that this grammar parses. */
+	extensions: string[];
+	/**
+	 * Appended to rule ids so a re-targeted pack keeps unique ids. Empty for
+	 * the grammar the rules are authored in, which needs no copy.
+	 */
+	idSuffix: string;
+};
 
-/** Re-target every `.yml` in `ruleDir` into a fresh directory under `destDir`. */
-export async function retargetRuleDir(
-	ruleDir: string,
-	targetLanguage: string,
-	idSuffix: string,
-	destDir: string,
-): Promise<string> {
-	const out = join(destDir, `rules-${targetLanguage}`);
-	await mkdir(out, { recursive: true });
-	for (const name of await readdir(ruleDir)) {
-		if (!name.endsWith(".yml")) continue;
-		const rewritten = retargetRuleText(
-			await Bun.file(join(ruleDir, name)).text(),
-			targetLanguage,
-			idSuffix,
-		);
-		await writeFile(join(out, name), rewritten, "utf8");
+/** The grammars to scan each language with, and which file extensions each one takes. */
+export const DIALECTS: Record<Language, Dialect[]> = {
+	typescript: [
+		{ astGrepLanguage: "typescript", extensions: [".ts", ".mts", ".cts"], idSuffix: "" },
+		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
+	],
+	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
+	kotlin: [{ astGrepLanguage: "kotlin", extensions: [".kt"], idSuffix: "" }],
+};
+
+/**
+ * The folder that holds `files`, authored rules from one folder, in the form
+ * that `dialect` can run. For the authored grammar that is their own folder.
+ * For another grammar it is `destDir`, with a re-targeted copy of each file
+ * under the same base name: ast-grep reads a rule's grammar from its
+ * `language:` line, so this is how one authored pack runs on .tsx too.
+ */
+export async function dialectRuleDir({
+	files,
+	dialect,
+	destDir,
+}: {
+	files: string[];
+	dialect: Dialect;
+	destDir: string;
+}): Promise<string> {
+	const [first] = files;
+	if (dialect.idSuffix === "" && first !== undefined) return dirname(first);
+	await mkdir(destDir, { recursive: true });
+	for (const file of files) {
+		const text = retargetRuleText(await Bun.file(file).text(), dialect);
+		await writeFile(join(destDir, basename(file)), text, "utf8");
 	}
-	return out;
-}
-
-/** A temp workspace for re-targeted rule files; caller removes it. */
-export function createWorkspace(): Promise<string> {
-	return mkdtemp(join(tmpdir(), "slop-"));
+	return destDir;
 }
 
 /**
@@ -92,7 +115,7 @@ export function createWorkspace(): Promise<string> {
  *   "rule"    a single rule file (possibly multi-document)  -> --rule
  *   "project" an sgconfig.yml with `ruleDirs:`              -> --config
  */
-export type RuleSource = { kind: "rule" | "project"; path: string };
+type RuleSource = { kind: "rule" | "project"; path: string };
 
 /**
  * Scan `files` with `source` and return every match.
@@ -102,23 +125,25 @@ export type RuleSource = { kind: "rule" | "project"; path: string };
  * denominator and the scanned set can never disagree.
  *
  * There is no `--lang` flag: `ast-grep scan` takes the language from each rule's
- * `language:` field, which is what retargetRules above manipulates.
+ * `language:` field, which is what dialectRuleDir above changes.
  */
-export async function scan(source: RuleSource, files: string[], cwd: string): Promise<Match[]> {
+/** One scan: the rules to run, the files to scan, and the folder they are relative to. */
+type ScanInput = { source: RuleSource; files: string[]; cwd: string };
+
+export async function scan({ source, files, cwd }: ScanInput): Promise<Match[]> {
 	if (files.length === 0) return [];
 
-	const bin = resolveTool("ast-grep", cwd);
+	const tool = resolveTool("ast-grep", cwd);
 	const flag = source.kind === "project" ? "--config" : "--rule";
 	const matches: Match[] = [];
 
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
 		const batch = files.slice(i, i + BATCH_SIZE);
-		const { stdout, stderr } = await runTool(
-			"ast-grep",
-			bin,
-			["scan", flag, source.path, "--json", ...batch.map((f) => (cwd ? `${cwd}/${f}` : f))],
-			{ cwd, root: cwd },
-		);
+		const { stdout, stderr } = await runTool({
+			...tool,
+			args: ["scan", flag, source.path, "--json=compact", ...batch.map((f) => `${cwd}/${f}`)],
+			cwd,
+		});
 
 		// ast-grep exits 0 even when it could not read some of the paths it was
 		// given, reporting them only on stderr ("ERROR: <path>: No such file").
@@ -141,14 +166,18 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 		} catch (err) {
 			throw new Error(
 				`ast-grep produced unparseable JSON for ${source.path}: ${(err as Error).message}`,
+				{ cause: err },
 			);
 		}
-		// Re-relativise so downstream keys are stable regardless of how the
-		// engine was invoked.
+		// Keep only the fields the engine reads. ast-grep also returns labels,
+		// lines and messages, which would roughly double the memory held.
 		for (const m of parsed) {
 			matches.push({
-				...m,
-				file: cwd && m.file.startsWith(`${cwd}/`) ? m.file.slice(cwd.length + 1) : m.file,
+				ruleId: m.ruleId,
+				file: relativeTo(cwd, m.file),
+				range: m.range,
+				text: m.text,
+				metaVariables: m.metaVariables,
 			});
 		}
 	}

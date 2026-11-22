@@ -8,7 +8,7 @@
 // the user-facing statement of the rule.
 
 import type { Callable } from "./config.ts";
-import { HIGH_COMPLEXITY_CUTOFF } from "./config.ts";
+import { isHighComplexity } from "./metrics.ts";
 
 /** One callable that breaks the ratchet, with what it was on the base. */
 export type HotCallable = {
@@ -24,7 +24,7 @@ export type HotCallable = {
 
 /** Callables grouped by file and name, each group most complex first. */
 function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
-	const sorted = [...callables].sort((a, b) => b.complexity - a.complexity);
+	const sorted = callables.toSorted((a, b) => b.complexity - a.complexity);
 	return Map.groupBy(sorted, (c) => `${c.file}\u0000${c.name ?? ""}`);
 }
 
@@ -44,28 +44,32 @@ function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
  */
 export function findHotCallables(head: Callable[], base: Callable[]): HotCallable[] {
 	const baseGroups = byFileAndName(base);
-	const baseByName = Map.groupBy(
-		base.filter((c) => c.name !== null),
-		(c) => c.name as string,
-	);
+	const baseByName = Map.groupBy(base, (c) => c.name);
+	const movedFrom = (c: Callable): Callable | undefined => {
+		const sameName = c.name === null ? undefined : baseByName.get(c.name);
+		return sameName?.length === 1 ? sameName[0] : undefined;
+	};
 
-	const hot: HotCallable[] = [];
-	for (const [key, group] of byFileAndName(head)) {
-		const baseGroup = baseGroups.get(key) ?? [];
-		group.forEach((c, i) => {
-			if (c.complexity <= HIGH_COMPLEXITY_CUTOFF || c.waived) return;
-			const moved =
-				baseGroup.length === 0 && c.name !== null ? baseByName.get(c.name) : undefined;
-			const match = baseGroup[i] ?? (moved?.length === 1 ? moved[0] : undefined);
-			if (match !== undefined && c.complexity <= match.complexity) return;
-			hot.push({
-				file: c.file,
-				line: c.startLine + 1,
-				name: c.name,
-				complexity: c.complexity,
-				baseComplexity: match?.complexity ?? null,
-			});
-		});
-	}
-	return hot.sort((a, b) => b.complexity - a.complexity);
+	return [...byFileAndName(head)]
+		.flatMap(([key, group]) => {
+			const baseGroup = baseGroups.get(key) ?? [];
+			return group.map((c, rank) => ({
+				c,
+				match: baseGroup.length === 0 ? movedFrom(c) : baseGroup[rank],
+			}));
+		})
+		.filter(
+			({ c, match }) =>
+				isHighComplexity(c) &&
+				!c.waived &&
+				(match === undefined || c.complexity > match.complexity),
+		)
+		.map(({ c, match }) => ({
+			file: c.file,
+			line: c.startLine + 1,
+			name: c.name,
+			complexity: c.complexity,
+			baseComplexity: match?.complexity ?? null,
+		}))
+		.toSorted((a, b) => b.complexity - a.complexity);
 }

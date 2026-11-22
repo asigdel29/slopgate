@@ -12,9 +12,10 @@
 // entry, and their branches are removed from the parent's count — also Radon's
 // behaviour.
 
-import type { Callable, FileMeasurement, Language } from "./config.ts";
+import type { Callable, Language } from "./config.ts";
 import { WAIVER } from "./config.ts";
 import type { Match } from "./scan.ts";
+import { sourceLineKeys } from "./sources.ts";
 
 type Span = {
 	startByte: number;
@@ -23,6 +24,7 @@ type Span = {
 	endLine: number;
 };
 
+/** The byte and line range of a match. */
 function toSpan(m: Match): Span {
 	return {
 		startByte: m.range.byteOffset.start,
@@ -32,17 +34,41 @@ function toSpan(m: Match): Span {
 	};
 }
 
+/** The span's length in bytes, which orders spans from innermost to outermost. */
 function size(s: Span): number {
 	return s.endByte - s.startByte;
 }
 
-/** Count the file's source lines that fall inside `[startLine, endLine]`. */
-function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number): number {
-	let count = 0;
-	for (let line = startLine; line <= endLine; line++) {
-		if (sourceLines.has(line)) count++;
-	}
-	return count;
+/**
+ * The smallest span in `bySizeAsc` that contains `byte`, or undefined. The
+ * list must be sorted smallest first, so the first hit is the innermost.
+ */
+function innermost<T extends Span>(bySizeAsc: T[], byte: number): T | undefined {
+	return bySizeAsc.find((s) => byte >= s.startByte && byte < s.endByte);
+}
+
+/** What a structural match means to the engine. */
+type RuleKind = "callable" | "name" | "comment" | "binding" | "decision";
+
+/**
+ * The rule-id contract with structural/*.yml: a match's meaning comes from the
+ * prefix of its rule id. Prefix rather than equality, because a re-targeted
+ * dialect pack suffixes rule ids (`meta-comment-tsx`). This table is the one
+ * place the engine reads the contract.
+ */
+const RULE_KINDS: Array<[prefix: string, kind: RuleKind]> = [
+	["callable-", "callable"],
+	// The `$NAME` of the callable that starts at the same byte.
+	["meta-name", "name"],
+	["meta-comment", "comment"],
+	// One binding clause of a multi-clause Swift condition.
+	["meta-condition-binding", "binding"],
+	["dp-", "decision"],
+];
+
+/** The kind of a match from its rule id, or null for a rule the engine does not read. */
+export function ruleKind(ruleId: string): RuleKind | null {
+	return RULE_KINDS.find(([prefix]) => ruleId.startsWith(prefix))?.[1] ?? null;
 }
 
 /**
@@ -53,51 +79,7 @@ function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number
  * Only Swift needs this. In TypeScript the equivalent is written with `&&`,
  * which is already a node the decision-point rules match directly.
  */
-const MULTI_CLAUSE_STATEMENT_RULES = ["dp-if", "dp-guard"];
-
-export function isConditionBindingRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-condition-binding");
-}
-
-/**
- * Extra decision points contributed by multi-clause conditions, keyed by the
- * byte offset of the statement that owns them.
- *
- * A statement with n bindings contributes n-1: the first clause is already
- * counted by `dp-if` / `dp-guard`, and every further clause adds a branch. Each
- * binding is attributed to its INNERMOST enclosing statement so a nested
- * `if let` inside another one does not inflate the outer statement's count.
- */
-function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<number, number> {
-	const perStatement = new Map<number, number>();
-	if (statements.length === 0 || bindings.length === 0) return perStatement;
-
-	const bySizeAsc = [...statements].sort((a, b) => size(a) - size(b));
-
-	for (const binding of bindings) {
-		for (const statement of bySizeAsc) {
-			if (binding.startByte >= statement.startByte && binding.startByte < statement.endByte) {
-				perStatement.set(statement.startByte, (perStatement.get(statement.startByte) ?? 0) + 1);
-				break;
-			}
-		}
-	}
-
-	// n bindings => n-1 extra decision points.
-	for (const [start, count] of perStatement) {
-		perStatement.set(start, Math.max(0, count - 1));
-	}
-	return perStatement;
-}
-
-export function isCallableRule(ruleId: string): boolean {
-	return ruleId.startsWith("callable-");
-}
-
-/** A `meta-name-*` match: the `$NAME` of the callable starting at the same byte. */
-export function isNameRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-name");
-}
+const MULTI_CLAUSE_STATEMENT_RULE = /^dp-(?:if|guard)/;
 
 /** Callables whose name is their kind rather than an identifier in the source. */
 const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
@@ -109,143 +91,120 @@ const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
 	["callable-setter", "set"],
 ];
 
-export function isDecisionPointRule(ruleId: string): boolean {
-	return ruleId.startsWith("dp-");
+/**
+ * Extra decision points contributed by multi-clause conditions, keyed by the
+ * byte offset of the statement that owns them.
+ *
+ * A statement with n bindings contributes n-1: the first clause is already
+ * counted by `dp-if` / `dp-guard`, and every further clause adds a branch. Each
+ * binding is attributed to its INNERMOST enclosing statement so a nested
+ * `if let` inside another one does not inflate the outer statement's count.
+ */
+function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<number, number> {
+	const bySizeAsc = statements.toSorted((a, b) => size(a) - size(b));
+	const bindingsPerStatement = Map.groupBy(
+		bindings.flatMap((b) => innermost(bySizeAsc, b.startByte) ?? []),
+		(statement) => statement.startByte,
+	);
+	return new Map(
+		[...bindingsPerStatement].map(([start, owned]) => [start, Math.max(0, owned.length - 1)]),
+	);
 }
 
-// Prefix rather than equality: a re-targeted dialect pack suffixes rule ids
-// (see scan.ts:retargetRules), so `meta-comment-tsx` must classify the same way.
-export function isCommentRule(ruleId: string): boolean {
-	return ruleId.startsWith("meta-comment");
+/** The name of each callable in one file, keyed by its start byte. */
+function namesByStart(callables: Match[], names: Match[]): Map<number, string> {
+	return new Map([
+		...callables.flatMap((m) => {
+			const intrinsic = INTRINSIC_NAMES.find(([prefix]) => m.ruleId.startsWith(prefix));
+			return intrinsic ? [[m.range.byteOffset.start, intrinsic[1]] as const] : [];
+		}),
+		...names.flatMap((m) => {
+			const name = m.metaVariables?.single?.NAME?.text;
+			return name ? [[m.range.byteOffset.start, name] as const] : [];
+		}),
+	]);
 }
+
+/** One file's matches and source lines, as buildCallables groups them. */
+type FileScan = {
+	/** The path, relative to the repository root. */
+	file: string;
+	/** The language the file was measured as. */
+	language: Language;
+	/** The structural matches in this file. */
+	matches: Match[];
+	/** The file's source lines. */
+	sourceLines: Set<number>;
+};
 
 /**
- * Build the callable table for one language.
- *
- * `measurements` supplies each file's source-line set, so SLOC is computed on
- * the same definition as the LOC denominator rather than a second, subtly
- * different one.
+ * The callables in one file, innermost first. A decision point counts toward
+ * the innermost callable that contains it. One outside every callable is
+ * top-level control flow; upstream's mass.py only sums function and method
+ * symbols, so it is dropped rather than attributed anywhere.
  */
-export function buildCallables(
-	matches: Match[],
-	measurements: FileMeasurement[],
-	language: Language,
-): Callable[] {
-	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
+function callablesInFile({ file, language, matches, sourceLines }: FileScan): Callable[] {
+	const byKind = Map.groupBy(matches, (m) => ruleKind(m.ruleId));
+	const ofKind = (kind: RuleKind): Match[] => byKind.get(kind) ?? [];
 
-	const callableSpansByFile = new Map<string, Span[]>();
-	const decisionPointsByFile = new Map<string, Span[]>();
-	// Statements that can carry a multi-clause condition, and the bindings found
-	// in them — tracked separately because their contribution is arithmetic
-	// (n - 1) rather than one-per-match.
-	const clauseStatementsByFile = new Map<string, Span[]>();
-	const conditionBindingsByFile = new Map<string, Span[]>();
-	// A callable's name keyed by its start byte, and the last lines of waiver
-	// comments, both per file.
-	const namesByFile = new Map<string, Map<number, string>>();
-	const waiverEndLinesByFile = new Map<string, Set<number>>();
+	const spans = ofKind("callable")
+		.map(toSpan)
+		.toSorted((a, b) => size(a) - size(b));
+	const complexity = new Map<Span, number>(spans.map((s) => [s, 1]));
+	const addDecisions = (byte: number, count: number): void => {
+		const owner = innermost(spans, byte);
+		if (owner) complexity.set(owner, (complexity.get(owner) ?? 1) + count);
+	};
 
-	for (const m of matches) {
-		if (isCallableRule(m.ruleId)) {
-			const spans = callableSpansByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			callableSpansByFile.set(m.file, spans);
-			const intrinsic = INTRINSIC_NAMES.find(([prefix]) => m.ruleId.startsWith(prefix));
-			if (intrinsic) setName(namesByFile, m.file, m.range.byteOffset.start, intrinsic[1]);
-		} else if (isNameRule(m.ruleId)) {
-			const name = m.metaVariables?.single?.NAME?.text;
-			if (name) setName(namesByFile, m.file, m.range.byteOffset.start, name);
-		} else if (isCommentRule(m.ruleId)) {
-			if (m.text?.includes(WAIVER)) {
-				const lines = waiverEndLinesByFile.get(m.file) ?? new Set<number>();
-				lines.add(m.range.end.line);
-				waiverEndLinesByFile.set(m.file, lines);
-			}
-		} else if (isConditionBindingRule(m.ruleId)) {
-			const spans = conditionBindingsByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			conditionBindingsByFile.set(m.file, spans);
-		} else if (isDecisionPointRule(m.ruleId)) {
-			const spans = decisionPointsByFile.get(m.file) ?? [];
-			spans.push(toSpan(m));
-			decisionPointsByFile.set(m.file, spans);
-
-			// A dialect pack suffixes rule ids, so match on the prefix.
-			if (MULTI_CLAUSE_STATEMENT_RULES.some((id) => m.ruleId.startsWith(id))) {
-				const stmts = clauseStatementsByFile.get(m.file) ?? [];
-				stmts.push(toSpan(m));
-				clauseStatementsByFile.set(m.file, stmts);
-			}
-		}
+	for (const decision of ofKind("decision")) addDecisions(decision.range.byteOffset.start, 1);
+	const statements = ofKind("decision")
+		.filter((m) => MULTI_CLAUSE_STATEMENT_RULE.test(m.ruleId))
+		.map(toSpan);
+	const bindings = ofKind("binding").map(toSpan);
+	for (const [start, extra] of extraConditionComplexity(statements, bindings)) {
+		if (extra > 0) addDecisions(start, extra);
 	}
 
-	const callables: Callable[] = [];
-
-	for (const [file, spans] of callableSpansByFile) {
-		const sourceLines = sourceLinesByFile.get(file);
-		if (!sourceLines) continue;
-
-		// Innermost-first. Scanning this order lets the containment search stop at
-		// the first hit, which is by construction the tightest enclosing callable.
-		const bySizeAsc = [...spans].sort((a, b) => size(a) - size(b));
-		const complexity = new Map<Span, number>(bySizeAsc.map((s) => [s, 1]));
-
-		for (const dp of decisionPointsByFile.get(file) ?? []) {
-			for (const callable of bySizeAsc) {
-				if (dp.startByte >= callable.startByte && dp.startByte < callable.endByte) {
-					complexity.set(callable, (complexity.get(callable) as number) + 1);
-					break;
-				}
-			}
-			// A decision point outside every callable is top-level control flow.
-			// Upstream's mass.py only sums function/method symbols, so it is
-			// intentionally dropped rather than attributed anywhere.
-		}
-
-		// Multi-clause conditions add their extra branches to whichever callable
-		// owns the statement — the same attribution the statement itself got.
-		const extras = extraConditionComplexity(
-			clauseStatementsByFile.get(file) ?? [],
-			conditionBindingsByFile.get(file) ?? [],
-		);
-		for (const [statementStart, extra] of extras) {
-			if (extra === 0) continue;
-			for (const callable of bySizeAsc) {
-				if (statementStart >= callable.startByte && statementStart < callable.endByte) {
-					complexity.set(callable, (complexity.get(callable) as number) + extra);
-					break;
-				}
-			}
-		}
-
-		const names = namesByFile.get(file);
-		const waiverEndLines = waiverEndLinesByFile.get(file);
-		for (const span of bySizeAsc) {
-			callables.push({
-				file,
-				language,
-				startByte: span.startByte,
-				endByte: span.endByte,
-				startLine: span.startLine,
-				endLine: span.endLine,
-				complexity: complexity.get(span) as number,
-				sloc: slocWithin(sourceLines, span.startLine, span.endLine),
-				name: names?.get(span.startByte) ?? null,
-				waived: waiverEndLines?.has(span.startLine - 1) ?? false,
-			});
-		}
-	}
-
-	return callables;
+	const names = namesByStart(ofKind("callable"), ofKind("name"));
+	const waiverEndLines = new Set(
+		ofKind("comment")
+			.filter((m) => m.text?.includes(WAIVER))
+			.map((m) => m.range.end.line),
+	);
+	return spans.map((span) => ({
+		file,
+		language,
+		startByte: span.startByte,
+		endByte: span.endByte,
+		startLine: span.startLine,
+		endLine: span.endLine,
+		complexity: complexity.get(span) ?? 1,
+		sloc: sourceLineKeys({ file, sourceLines, startLine: span.startLine, endLine: span.endLine })
+			.length,
+		name: names.get(span.startByte) ?? null,
+		waived: waiverEndLines.has(span.startLine - 1),
+	}));
 }
 
-function setName(
-	namesByFile: Map<string, Map<number, string>>,
-	file: string,
-	startByte: number,
-	name: string,
-): void {
-	const names = namesByFile.get(file) ?? new Map<number, string>();
-	names.set(startByte, name);
-	namesByFile.set(file, names);
+/** One language's structural matches, with the source lines of each file. */
+type LanguageScan = {
+	/** Every structural match for the language's files. */
+	matches: Match[];
+	/**
+	 * Each file's source lines, so SLOC uses the same definition as the LOC
+	 * denominator rather than a second, subtly different one.
+	 */
+	sourceLinesByFile: Map<string, Set<number>>;
+	/** The language the files were measured as. */
+	language: Language;
+};
+
+/** Build the callable table for one language. */
+export function buildCallables({ matches, sourceLinesByFile, language }: LanguageScan): Callable[] {
+	return [...Map.groupBy(matches, (m) => m.file)].flatMap(([file, fileMatches]) => {
+		const sourceLines = sourceLinesByFile.get(file);
+		return sourceLines
+			? callablesInFile({ file, language, matches: fileMatches, sourceLines })
+			: [];
+	});
 }

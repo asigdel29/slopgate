@@ -2,8 +2,15 @@
   "name": "slopgate",
   "version": "0.1.0",
   "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript, Swift and Kotlin.",
+  "keywords": [
+    "ast-grep",
+    "ci",
+    "code-quality",
+    "cyclomatic-complexity",
+    "static-analysis",
+    "technical-debt"
+  ],
   "license": "MIT",
-  "type": "module",
   "bin": {
     "slopgate": "./bin/slopgate.ts"
   },
@@ -12,20 +19,22 @@
     "src",
     "structural",
     "rules",
-    "examples"
+    "examples",
+    ".claude/skills",
+    ".github/instructions"
   ],
-  "keywords": [
-    "code-quality",
-    "cyclomatic-complexity",
-    "static-analysis",
-    "ci",
-    "ast-grep",
-    "technical-debt"
-  ],
+  "type": "module",
   "scripts": {
-    "test": "bun test",
-    "check": "bun test && bun run typecheck",
+    "check": "bun scripts/check.ts fmt:check lint typecheck knip slop coverage",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint --deny-warnings",
+    "lint:fix": "oxlint --fix --deny-warnings",
     "typecheck": "tsc --noEmit",
+    "knip": "knip-bun",
+    "slop": "bun bin/slopgate.ts --base main",
+    "test": "bun test",
+    "coverage": "sh scripts/coverage-gate.sh",
     "self": "bun bin/slopgate.ts --report"
   },
   "dependencies": {
@@ -33,10 +42,10 @@
     "jscpd": "4.0.5"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
+    "knip": "6.44.2",
+    "oxfmt": "0.77.0",
+    "oxlint": "1.92.0",
     "typescript": "^6.0.3"
-  },
-  "trustedDependencies": [
-    "@ast-grep/cli"
-  ]
+  }
 }

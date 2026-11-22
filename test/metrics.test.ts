@@ -9,25 +9,9 @@
 
 import { describe, expect, test } from "bun:test";
 import { buildCallables } from "../src/callables.ts";
-import type { Callable, FileMeasurement } from "../src/config.ts";
 import { computeErosion, computeVerbosity, mass } from "../src/metrics.ts";
-import { retargetRuleText } from "../src/scan.ts";
 import { classifyLines } from "../src/sources.ts";
-
-function callable(complexity: number, sloc: number, file = "a.ts"): Callable {
-	return {
-		file,
-		language: "typescript",
-		startByte: 0,
-		endByte: 1,
-		startLine: 0,
-		endLine: 0,
-		complexity,
-		sloc,
-		name: null,
-		waived: false,
-	};
-}
+import { callable } from "./helpers.ts";
 
 describe("mass (Eq. 2)", () => {
 	test("is CC x sqrt(SLOC)", () => {
@@ -48,7 +32,11 @@ describe("computeErosion (Eq. 3)", () => {
 		// masses:      12*sqrt(100)=120   5*sqrt(25)=25   11*sqrt(4)=22
 		// total:       120 + 25 + 22 = 167
 		// above CC 10: 120 + 22       = 142   (5 is not > 10)
-		const result = computeErosion([callable(12, 100), callable(5, 25), callable(11, 4)]);
+		const result = computeErosion([
+			callable({ complexity: 12, sloc: 100 }),
+			callable({ complexity: 5, sloc: 25 }),
+			callable({ complexity: 11, sloc: 4 }),
+		]);
 
 		expect(result.totalMass).toBe(167);
 		expect(result.highComplexityMass).toBe(142);
@@ -60,13 +48,16 @@ describe("computeErosion (Eq. 3)", () => {
 
 	test("the cutoff is strictly greater than 10, matching Radon's bound", () => {
 		// CC exactly 10 is NOT high-complexity; 11 is.
-		expect(computeErosion([callable(10, 16)]).erosion).toBe(0);
-		expect(computeErosion([callable(11, 16)]).erosion).toBe(1);
+		expect(computeErosion([callable({ complexity: 10, sloc: 16 })]).erosion).toBe(0);
+		expect(computeErosion([callable({ complexity: 11, sloc: 16 })]).erosion).toBe(1);
 	});
 
 	test("skips callables with no source lines, like upstream's sloc <= 0 guard", () => {
 		// A bodiless declaration must not contribute a zero to either sum.
-		const result = computeErosion([callable(12, 100), callable(99, 0)]);
+		const result = computeErosion([
+			callable({ complexity: 12, sloc: 100 }),
+			callable({ complexity: 99, sloc: 0 }),
+		]);
 		expect(result.callables).toBe(1);
 		expect(result.totalMass).toBe(120);
 		expect(result.erosion).toBe(1);
@@ -74,11 +65,15 @@ describe("computeErosion (Eq. 3)", () => {
 
 	test("an empty codebase has no concentration rather than NaN", () => {
 		expect(computeErosion([]).erosion).toBe(0);
-		expect(computeErosion([callable(5, 0)]).erosion).toBe(0);
+		expect(computeErosion([callable({ complexity: 5, sloc: 0 })]).erosion).toBe(0);
 	});
 
 	test("stays within [0, 1]", () => {
-		const result = computeErosion([callable(40, 900), callable(3, 4), callable(11, 100)]);
+		const result = computeErosion([
+			callable({ complexity: 40, sloc: 900 }),
+			callable({ complexity: 3, sloc: 4 }),
+			callable({ complexity: 11, sloc: 100 }),
+		]);
 		expect(result.erosion).toBeGreaterThanOrEqual(0);
 		expect(result.erosion).toBeLessThanOrEqual(1);
 	});
@@ -89,7 +84,7 @@ describe("computeVerbosity (Eq. 4)", () => {
 		const flagged = new Set(["a.ts:1", "a.ts:2"]);
 		const clones = new Set(["a.ts:2", "a.ts:3"]);
 
-		const result = computeVerbosity(flagged, clones, 10);
+		const result = computeVerbosity({ flaggedLines: flagged, cloneLines: clones, loc: 10 });
 
 		// Union is {1, 2, 3} — the shared line 2 is not double counted.
 		expect(result.unionLines).toBe(3);
@@ -100,25 +95,39 @@ describe("computeVerbosity (Eq. 4)", () => {
 	});
 
 	test("keys are per file, so equal line numbers in different files stay distinct", () => {
-		const result = computeVerbosity(new Set(["a.ts:7"]), new Set(["b.ts:7"]), 10);
+		const result = computeVerbosity({
+			flaggedLines: new Set(["a.ts:7"]),
+			cloneLines: new Set(["b.ts:7"]),
+			loc: 10,
+		});
 		expect(result.unionLines).toBe(2);
 	});
 
 	test("is bounded by 1 even when every line is both flagged and cloned", () => {
 		const every = new Set(["a.ts:0", "a.ts:1", "a.ts:2"]);
-		const result = computeVerbosity(every, new Set(every), 3);
+		const result = computeVerbosity({ flaggedLines: every, cloneLines: new Set(every), loc: 3 });
 		expect(result.verbosity).toBe(1);
 	});
 
 	test("an empty codebase is 0, not NaN", () => {
-		expect(computeVerbosity(new Set(), new Set(), 0).verbosity).toBe(0);
+		expect(
+			computeVerbosity({ flaggedLines: new Set(), cloneLines: new Set(), loc: 0 }).verbosity,
+		).toBe(0);
 	});
 });
 
+/** The source-line numbers of `source`, in order, with `comments` as comment spans. */
+function lines(source: string, comments: Array<[number, number]> = []): number[] {
+	return [...classifyLines(Buffer.from(source, "utf8"), comments).sourceLines].toSorted(
+		(a, b) => a - b,
+	);
+}
+
 describe("classifyLines", () => {
-	function lines(source: string, comments: Array<[number, number]> = []): number[] {
-		return [...classifyLines(Buffer.from(source, "utf8"), comments)].sort((a, b) => a - b);
-	}
+	test("counts every line as jscpd does, blank and comment lines included", () => {
+		expect(classifyLines(Buffer.from("a\n\n// c\n", "utf8"), []).lineCount).toBe(4);
+		expect(classifyLines(Buffer.from("a", "utf8"), []).lineCount).toBe(1);
+	});
 
 	test("blank and whitespace-only lines are not source lines", () => {
 		expect(lines("a\n\n   \n\tb\n")).toEqual([0, 3]);
@@ -158,38 +167,37 @@ describe("classifyLines", () => {
 	});
 });
 
-describe("buildCallables", () => {
-	// Byte spans are what attribution actually uses; lines only drive SLOC.
-	function match(ruleId: string, startByte: number, endByte: number, startLine = 0, endLine = 0) {
-		return {
-			ruleId,
-			file: "a.ts",
-			range: {
-				byteOffset: { start: startByte, end: endByte },
-				start: { line: startLine, column: 0 },
-				end: { line: endLine, column: 0 },
-			},
-		};
-	}
-
-	const measurement: FileMeasurement = {
+/**
+ * A structural match with the given rule and byte span. Byte spans are what
+ * attribution uses; lines only drive SLOC.
+ */
+function match(ruleId: string, startByte: number, endByte: number, startLine = 0, endLine = 0) {
+	return {
+		ruleId,
 		file: "a.ts",
-		language: "typescript",
-		loc: 10,
-		sourceLines: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+		range: {
+			byteOffset: { start: startByte, end: endByte },
+			start: { line: startLine, column: 0 },
+			end: { line: endLine, column: 0 },
+		},
 	};
+}
+
+describe("buildCallables", () => {
+	/** Every line of a.ts is a source line. */
+	const dense = new Map([["a.ts", new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])]]);
 
 	test("a decision point is attributed to the innermost enclosing callable", () => {
 		// outer 0..100 contains inner 40..60; the dp at 50 belongs to inner only.
-		const callables = buildCallables(
-			[
+		const callables = buildCallables({
+			matches: [
 				match("callable-function-declaration", 0, 100, 0, 9),
 				match("callable-named-function-expression", 40, 60, 3, 5),
 				match("dp-if", 50, 55, 4, 4),
 			],
-			[measurement],
-			"typescript",
-		);
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		const outer = callables.find((c) => c.startByte === 0);
 		const inner = callables.find((c) => c.startByte === 40);
@@ -202,15 +210,15 @@ describe("buildCallables", () => {
 		// An inline closure produces no callable-* match at all (see
 		// structural/typescript.yml), so its dp lands on the function around it
 		// rather than creating a near-zero-CC entry that would dilute Eq. 3.
-		const callables = buildCallables(
-			[
+		const callables = buildCallables({
+			matches: [
 				match("callable-function-declaration", 0, 100, 0, 9),
 				match("dp-if", 50, 55, 4, 4),
 				match("dp-logical", 56, 58, 4, 4),
 			],
-			[measurement],
-			"typescript",
-		);
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		expect(callables).toHaveLength(1);
 		expect(callables[0]?.complexity).toBe(3);
@@ -219,59 +227,38 @@ describe("buildCallables", () => {
 	test("a top-level decision point outside every callable is dropped", () => {
 		// Upstream's mass.py sums function/method symbols only, so module-level
 		// control flow has nowhere to go and must not inflate anything.
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 10, 0, 0), match("dp-if", 500, 505, 8, 8)],
-			[measurement],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [
+				match("callable-function-declaration", 0, 10, 0, 0),
+				match("dp-if", 500, 505, 8, 8),
+			],
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 
 		expect(callables).toHaveLength(1);
 		expect(callables[0]?.complexity).toBe(1);
 	});
 
 	test("SLOC counts only the file's source lines inside the callable's range", () => {
-		const sparse: FileMeasurement = {
-			file: "a.ts",
-			language: "typescript",
-			loc: 3,
-			// lines 1 and 3 are blank or comment-only
-			sourceLines: new Set([0, 2, 4]),
-		};
+		// Lines 1 and 3 are blank or comment-only.
+		const sparse = new Map([["a.ts", new Set([0, 2, 4])]]);
 
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 100, 0, 4)],
-			[sparse],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [match("callable-function-declaration", 0, 100, 0, 4)],
+			sourceLinesByFile: sparse,
+			language: "typescript",
+		});
 
 		expect(callables[0]?.sloc).toBe(3);
 	});
 
 	test("complexity starts at 1 with no decision points", () => {
-		const callables = buildCallables(
-			[match("callable-function-declaration", 0, 10, 0, 0)],
-			[measurement],
-			"typescript",
-		);
+		const callables = buildCallables({
+			matches: [match("callable-function-declaration", 0, 10, 0, 0)],
+			sourceLinesByFile: dense,
+			language: "typescript",
+		});
 		expect(callables[0]?.complexity).toBe(1);
-	});
-});
-
-describe("retargetRuleText", () => {
-	const authored = ["id: dp-if", "language: typescript", "severity: hint", "rule:", "  kind: if_statement"].join("\n");
-
-	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
-		const out = retargetRuleText(authored, "tsx", "-tsx");
-		expect(out).toContain("id: dp-if-tsx");
-		expect(out).toContain("language: tsx");
-		// The rule body itself must be untouched.
-		expect(out).toContain("  kind: if_statement");
-	});
-
-	test("leaves indented keys alone, so only top-level fields are rewritten", () => {
-		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join("\n");
-		const out = retargetRuleText(nested, "tsx", "-tsx");
-		expect(out).toContain("    language: nope");
-		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);
 	});
 });

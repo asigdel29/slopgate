@@ -1,0 +1,73 @@
+# Pre-commit hooks, managed by prek (https://github.com/j178/prek).
+#
+# Install once with `prek install`. Run every hook by hand with `prek run -a`.
+# The local hooks call the tools in node_modules/.bin through bun, so they
+# use the same versions as CI.
+
+# Fixtures are analyser input with deliberate defects. Do not let hooks fix them.
+exclude = '^test/fixtures/'
+
+[[repos]]
+repo = "builtin"
+hooks = [
+	# Changes go through a pull request.
+	{ id = "no-commit-to-branch", args = ["--branch", "main"] },
+	{ id = "trailing-whitespace" },
+	{ id = "end-of-file-fixer" },
+	{ id = "mixed-line-ending" },
+	{ id = "check-merge-conflict" },
+	{ id = "check-case-conflict" },
+	{ id = "check-toml" },
+	# These two files are JSONC: their tools read comments.
+	{ id = "check-json", exclude = '^(tsconfig\.json|\.oxlintrc\.json)$' },
+	# The rule packs are multi-document YAML, which this hook rejects by default.
+	{ id = "check-yaml", args = ["--allow-multiple-documents"] },
+	{ id = "check-added-large-files", args = ["--maxkb=512"] },
+	{ id = "detect-private-key" },
+	{ id = "forbid-new-submodules" },
+	{ id = "check-executables-have-shebangs" },
+	{ id = "check-shebang-scripts-are-executable" },
+	{ id = "fix-byte-order-marker" },
+]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "oxfmt"
+name = "oxfmt"
+language = "system"
+entry = "bun run fmt --no-error-on-unmatched-pattern"
+files = '\.(ts|tsx|js|jsonc?|ya?ml|md)$'
+
+[[repos.hooks]]
+id = "oxlint"
+name = "oxlint --fix"
+language = "system"
+entry = "bun run lint:fix --no-error-on-unmatched-pattern"
+files = '\.(ts|tsx|js)$'
+
+[[repos.hooks]]
+id = "typecheck"
+name = "tsc"
+language = "system"
+entry = "bun run typecheck"
+pass_filenames = false
+files = '(\.ts$|^package\.json$|^tsconfig\.json$)'
+
+[[repos.hooks]]
+id = "knip"
+name = "knip (unused code)"
+language = "system"
+entry = "bun run knip"
+pass_filenames = false
+files = '(\.ts$|^package\.json$|^knip\.jsonc$)'
+
+# Scan only the staged diff, so ignored local files are never read.
+[[repos.hooks]]
+id = "gitleaks"
+name = "gitleaks (staged)"
+language = "system"
+entry = "gitleaks git --pre-commit --staged --redact --no-banner"
+pass_filenames = false
+always_run = true

@@ -7,77 +7,117 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Callable, Language, SlopConfig } from "../src/config.ts";
+import type { Callable, Language } from "../src/config.ts";
 import { findHotCallables } from "../src/hot.ts";
 import { measure } from "../src/measure.ts";
-import { formatHotCallables } from "../src/report.ts";
+import { formatHotCallables } from "../src/gate.ts";
+import { callable, configFor } from "./helpers.ts";
 
-/** A callable with only the fields the matcher reads set meaningfully. */
-function callable(name: string | null, complexity: number, file = "a.ts", startByte = 0): Callable {
-	return {
-		file,
-		language: "typescript",
-		startByte,
-		endByte: startByte + 1,
-		startLine: 9,
-		endLine: 20,
-		complexity,
-		sloc: 10,
-		name,
-		waived: false,
-	};
+/** A head or base callable on line 10, the line every annotation test reads. */
+function hotCallable(fields: Partial<Callable>): Callable {
+	return callable({ startLine: 9, ...fields });
 }
 
 describe("findHotCallables", () => {
 	test("ignores callables at or under the cutoff, however much they grew", () => {
-		expect(findHotCallables([callable("f", 10)], [callable("f", 2)])).toEqual([]);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "f", complexity: 10 })],
+				[hotCallable({ name: "f", complexity: 2 })],
+			),
+		).toEqual([]);
 	});
 
 	test("reports a new callable over the cutoff", () => {
-		expect(findHotCallables([callable("f", 11)], [])).toEqual([
+		expect(findHotCallables([hotCallable({ name: "f", complexity: 11 })], [])).toEqual([
 			{ file: "a.ts", line: 10, name: "f", complexity: 11, baseComplexity: null },
 		]);
 	});
 
 	test("reports an existing callable that gained branches", () => {
-		expect(findHotCallables([callable("f", 97)], [callable("f", 96)])).toEqual([
-			{ file: "a.ts", line: 10, name: "f", complexity: 97, baseComplexity: 96 },
-		]);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "f", complexity: 97 })],
+				[hotCallable({ name: "f", complexity: 96 })],
+			),
+		).toEqual([{ file: "a.ts", line: 10, name: "f", complexity: 97, baseComplexity: 96 }]);
 	});
 
 	test("accepts an existing callable that stayed level or shrank", () => {
-		expect(findHotCallables([callable("f", 96)], [callable("f", 96)])).toEqual([]);
-		expect(findHotCallables([callable("f", 40)], [callable("f", 96)])).toEqual([]);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "f", complexity: 96 })],
+				[hotCallable({ name: "f", complexity: 96 })],
+			),
+		).toEqual([]);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "f", complexity: 40 })],
+				[hotCallable({ name: "f", complexity: 96 })],
+			),
+		).toEqual([]);
 	});
 
 	test("follows a callable moved to another file", () => {
-		expect(findHotCallables([callable("f", 30, "b.ts")], [callable("f", 30, "a.ts")])).toEqual([]);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "f", complexity: 30, file: "b.ts" })],
+				[hotCallable({ name: "f", complexity: 30, file: "a.ts" })],
+			),
+		).toEqual([]);
 	});
 
 	test("does not follow a name that exists in several base files", () => {
-		const base = [callable("f", 30, "a.ts"), callable("f", 30, "b.ts")];
-		expect(findHotCallables([callable("f", 20, "c.ts")], base)).toHaveLength(1);
+		const base = [
+			hotCallable({ name: "f", complexity: 30, file: "a.ts" }),
+			hotCallable({ name: "f", complexity: 30, file: "b.ts" }),
+		];
+		expect(
+			findHotCallables([hotCallable({ name: "f", complexity: 20, file: "c.ts" })], base),
+		).toHaveLength(1);
 	});
 
 	test("compares same-named callables in a file by rank, not position", () => {
-		const base = [callable("execute", 20, "a.ts", 0), callable("execute", 12, "a.ts", 100)];
+		const base = [
+			hotCallable({ name: "execute", complexity: 20, file: "a.ts", startByte: 0 }),
+			hotCallable({ name: "execute", complexity: 12, file: "a.ts", startByte: 100 }),
+		];
 		// A simple sibling added above both shifts every position but no rank.
-		const sibling = [callable("execute", 3, "a.ts", 0), ...base.map((c) => ({ ...c, startByte: c.startByte + 50 }))];
+		const sibling = [
+			hotCallable({ name: "execute", complexity: 3, file: "a.ts", startByte: 0 }),
+			...base.map((c) => ({ ...c, startByte: c.startByte + 50 })),
+		];
 		expect(findHotCallables(sibling, base)).toEqual([]);
-		const grown = [callable("execute", 20, "a.ts", 0), callable("execute", 13, "a.ts", 120)];
+		const grown = [
+			hotCallable({ name: "execute", complexity: 20, file: "a.ts", startByte: 0 }),
+			hotCallable({ name: "execute", complexity: 13, file: "a.ts", startByte: 120 }),
+		];
 		expect(findHotCallables(grown, base).map((h) => h.baseComplexity)).toEqual([12]);
 	});
 
 	test("never takes a same-file callable of another name as the match", () => {
-		expect(findHotCallables([callable("g", 20)], [callable("f", 30)])).toHaveLength(1);
+		expect(
+			findHotCallables(
+				[hotCallable({ name: "g", complexity: 20 })],
+				[hotCallable({ name: "f", complexity: 30 })],
+			),
+		).toHaveLength(1);
 	});
 
 	test("skips a waived callable", () => {
-		expect(findHotCallables([{ ...callable("f", 30), waived: true }], [])).toEqual([]);
+		expect(
+			findHotCallables([{ ...hotCallable({ name: "f", complexity: 30 }), waived: true }], []),
+		).toEqual([]);
 	});
 
 	test("lists the most complex offender first", () => {
-		const hot = findHotCallables([callable("small", 12, "a.ts", 0), callable("big", 40, "a.ts", 50)], []);
+		const hot = findHotCallables(
+			[
+				hotCallable({ name: "small", complexity: 12, file: "a.ts", startByte: 0 }),
+				hotCallable({ name: "big", complexity: 40, file: "a.ts", startByte: 50 }),
+			],
+			[],
+		);
 		expect(hot.map((h) => h.name)).toEqual(["big", "small"]);
 	});
 });
@@ -94,57 +134,36 @@ describe("formatHotCallables", () => {
 describe("callable names and waivers (ast-grep)", () => {
 	const FIXTURES = join(import.meta.dir, "fixtures");
 
-	function configFor(language: Language, file: string): SlopConfig {
-		return {
-			languages: { [language]: { include: [file], exclude: [] } },
-			maxDelta: { erosion: null, verbosity: null },
-			thresholds: { erosion: null, verbosity: null },
-			calibratedAtRulePackVersion: 0,
-		};
-	}
-
 	async function namesIn(language: Language, file: string) {
-		const { callables } = await measure(configFor(language, file), FIXTURES);
+		const { callables } = await measure(configFor(language, [file]), FIXTURES);
 		return callables
-			.sort((a, b) => a.startByte - b.startByte)
+			.toSorted((a, b) => a.startByte - b.startByte)
 			.map((c) => ({ line: c.startLine + 1, name: c.name, waived: c.waived }));
 	}
 
-	test(
-		"TypeScript: declarations, methods, bound arrows, and a waiver",
-		async () => {
-			expect(await namesIn("typescript", "typescript/names.ts")).toEqual([
-				{ line: 4, name: "runTurn", waived: false },
-				{ line: 9, name: "handle", waived: false },
-				{ line: 13, name: "value", waived: false },
-				{ line: 19, name: "run", waived: false },
-				{ line: 24, name: "parse", waived: true },
-			]);
-		},
-		60_000,
-	);
+	test("TypeScript: declarations, methods, bound arrows, and a waiver", async () => {
+		expect(await namesIn("typescript", "typescript/names.ts")).toEqual([
+			{ line: 4, name: "runJob", waived: false },
+			{ line: 9, name: "handle", waived: false },
+			{ line: 13, name: "value", waived: false },
+			{ line: 19, name: "run", waived: false },
+			{ line: 24, name: "parse", waived: true },
+		]);
+	}, 60_000);
 
-	test(
-		"Kotlin: an init block, a function and an expression-bodied getter",
-		async () => {
-			expect(await namesIn("kotlin", "kotlin/names.kt")).toEqual([
-				{ line: 4, name: "init", waived: false },
-				{ line: 8, name: "footer", waived: false },
-				{ line: 13, name: "get", waived: false },
-			]);
-		},
-		60_000,
-	);
+	test("Kotlin: an init block, a function and an expression-bodied getter", async () => {
+		expect(await namesIn("kotlin", "kotlin/names.kt")).toEqual([
+			{ line: 4, name: "init", waived: false },
+			{ line: 8, name: "footer", waived: false },
+			{ line: 13, name: "get", waived: false },
+		]);
+	}, 60_000);
 
-	test(
-		"Swift: a computed property, an attributed function, and init",
-		async () => {
-			expect(await namesIn("swift", "swift/names.swift")).toEqual([
-				{ line: 4, name: "body", waived: false },
-				{ line: 8, name: "footer", waived: false },
-				{ line: 13, name: "init", waived: false },
-			]);
-		},
-		60_000,
-	);
+	test("Swift: a computed property, an attributed function, and init", async () => {
+		expect(await namesIn("swift", "swift/names.swift")).toEqual([
+			{ line: 4, name: "body", waived: false },
+			{ line: 8, name: "footer", waived: false },
+			{ line: 13, name: "init", waived: false },
+		]);
+	}, 60_000);
 });
