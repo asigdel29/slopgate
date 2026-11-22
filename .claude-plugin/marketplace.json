@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "slopgate",
+  "description": "Anti-slop skills that go with the slopgate CI gate.",
+  "owner": {
+    "name": "Anubhav Sigdel",
+    "url": "https://github.com/asigdel29"
+  },
+  "plugins": [
+    {
+      "name": "slopgate",
+      "description": "fixit, writing-style, release-test and preview-test skills.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

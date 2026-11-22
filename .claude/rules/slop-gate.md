@@ -1,0 +1,1 @@
+../../.github/instructions/slop-gate.instructions.md

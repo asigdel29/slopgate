@@ -1,0 +1,11 @@
+{
+  "name": "slopgate",
+  "description": "Skills that keep slop out of a codebase: fixit (untangle a codebase), writing-style, release-test and preview-test.",
+  "author": {
+    "name": "Anubhav Sigdel",
+    "url": "https://github.com/asigdel29"
+  },
+  "homepage": "https://github.com/asigdel29/slopgate",
+  "license": "MIT",
+  "skills": "./.claude/skills/"
+}
