@@ -1,6 +1,6 @@
 # slopgate
 
-slopgate is a CI gate for two code-degradation metrics: structural erosion and verbosity. It measures TypeScript and Swift with ast-grep and jscpd. It runs on Bun. The default branch is `main`.
+slopgate is a CI gate for two code-degradation metrics: structural erosion and verbosity. It measures TypeScript, Swift and Kotlin with ast-grep and jscpd. It runs on Bun. The default branch is `main`.
 
 ## Map
 

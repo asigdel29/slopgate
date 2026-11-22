@@ -2,8 +2,8 @@
 //
 // The paper measures "structural duplication as clone lines normalized by LOC".
 // jscpd is the clone detector here because it is token-based (so it sees through
-// renamed identifiers, which is what "structural" means) and covers both
-// TypeScript and Swift with one tool.
+// renamed identifiers, which is what "structural" means) and covers
+// TypeScript, Swift and Kotlin with one tool.
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";

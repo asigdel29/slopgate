@@ -1,7 +1,7 @@
 {
   "name": "slopgate",
   "version": "0.1.0",
-  "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript and Swift.",
+  "description": "CI gate for the code-degradation metrics from SlopCodeBench (arXiv:2603.24755): structural erosion and verbosity, for TypeScript, Swift and Kotlin.",
   "keywords": [
     "ast-grep",
     "ci",
@@ -43,9 +43,9 @@
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
-    "knip": "6.44.2",
-    "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
+    "knip": "6.46.1",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
     "typescript": "^6.0.3"
   }
 }

@@ -78,6 +78,7 @@ export const DIALECTS: Record<Language, Dialect[]> = {
 		{ astGrepLanguage: "tsx", extensions: [".tsx"], idSuffix: "-tsx" },
 	],
 	swift: [{ astGrepLanguage: "swift", extensions: [".swift"], idSuffix: "" }],
+	kotlin: [{ astGrepLanguage: "kotlin", extensions: [".kt"], idSuffix: "" }],
 };
 
 /**
