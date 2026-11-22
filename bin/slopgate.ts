@@ -7,6 +7,7 @@
 // Usage:
 //   slopgate [--root <dir>] [--config <path>] [--base <ref>] [--report] [--json]
 //            [--json-out <path>]
+//   slopgate init [--root <dir>] [--force]
 //
 //   --root <dir>        repository to measure (default: current directory)
 //   --config <path>     config file (default: <root>/slop.config.json)
@@ -14,6 +15,9 @@
 //   --report            measure and print, always exit 0 — use this to calibrate
 //   --json              machine-readable output, always exit 0
 //   --json-out <path>   also write the machine-readable output to <path>, and gate
+//
+//   init                copy the agent rules, skills, slop config and CI workflow
+//                       into the repository; --force overwrites existing files
 //
 // Exit codes: 0 pass, 1 a metric exceeded its ceiling or the config is stale.
 
@@ -23,6 +27,7 @@ import { LANGUAGES } from "../src/config.ts";
 import { checkoutWorktree, isGitRepository, resolveBase } from "../src/git.ts";
 import type { HotCallable } from "../src/hot.ts";
 import { findHotCallables } from "../src/hot.ts";
+import { runInit } from "../src/init.ts";
 import { measure } from "../src/measure.ts";
 import {
 	formatDeltaFailure,
@@ -51,7 +56,12 @@ const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--repor
   --json            machine-readable output, always exit 0
   --json-out <path> also write the machine-readable output to <path>, and
                     still gate — one scan for both the verdict and the numbers
-  --help            this message`;
+  --help            this message
+
+slopgate init [--root <dir>] [--force]
+
+  Copy the agent rules, skills, slop config and CI workflow into the repository.
+  Existing files are skipped unless --force is given.`;
 
 export function parseArgs(argv: string[]): Options {
 	let root = process.cwd();
@@ -292,5 +302,6 @@ async function main(): Promise<number> {
 // this file — as the config tests do — runs the whole gate and then exits the
 // test process.
 if (import.meta.main) {
-	process.exit(await main());
+	const [command, ...rest] = process.argv.slice(2);
+	process.exit(command === "init" ? await runInit(rest) : await main());
 }
