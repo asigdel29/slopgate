@@ -109,7 +109,9 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 	try {
 		parsed = await file.json();
 	} catch (err) {
-		throw new Error(`${configPath} is not valid JSON: ${(err as Error).message}`);
+		throw new Error(`${configPath} is not valid JSON: ${(err as Error).message}`, {
+			cause: err,
+		});
 	}
 
 	const config = parsed as SlopConfig;

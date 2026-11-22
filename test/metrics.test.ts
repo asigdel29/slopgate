@@ -115,11 +115,11 @@ describe("computeVerbosity (Eq. 4)", () => {
 	});
 });
 
-describe("classifyLines", () => {
-	function lines(source: string, comments: Array<[number, number]> = []): number[] {
-		return [...classifyLines(Buffer.from(source, "utf8"), comments)].sort((a, b) => a - b);
-	}
+function lines(source: string, comments: Array<[number, number]> = []): number[] {
+	return [...classifyLines(Buffer.from(source, "utf8"), comments)].toSorted((a, b) => a - b);
+}
 
+describe("classifyLines", () => {
 	test("blank and whitespace-only lines are not source lines", () => {
 		expect(lines("a\n\n   \n\tb\n")).toEqual([0, 3]);
 	});
@@ -158,20 +158,20 @@ describe("classifyLines", () => {
 	});
 });
 
-describe("buildCallables", () => {
-	// Byte spans are what attribution actually uses; lines only drive SLOC.
-	function match(ruleId: string, startByte: number, endByte: number, startLine = 0, endLine = 0) {
-		return {
-			ruleId,
-			file: "a.ts",
-			range: {
-				byteOffset: { start: startByte, end: endByte },
-				start: { line: startLine, column: 0 },
-				end: { line: endLine, column: 0 },
-			},
-		};
-	}
+// Byte spans are what attribution actually uses; lines only drive SLOC.
+function match(ruleId: string, startByte: number, endByte: number, startLine = 0, endLine = 0) {
+	return {
+		ruleId,
+		file: "a.ts",
+		range: {
+			byteOffset: { start: startByte, end: endByte },
+			start: { line: startLine, column: 0 },
+			end: { line: endLine, column: 0 },
+		},
+	};
+}
 
+describe("buildCallables", () => {
 	const measurement: FileMeasurement = {
 		file: "a.ts",
 		language: "typescript",

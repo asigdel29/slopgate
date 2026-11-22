@@ -18,9 +18,9 @@ function pct(value: number): string {
 
 /** The worst offenders, so a failing gate points at something actionable. */
 export function topOffenders(callables: Callable[], limit: number): Callable[] {
-	return [...callables]
+	return callables
 		.filter((c) => c.complexity > HIGH_COMPLEXITY_CUTOFF && c.sloc > 0)
-		.sort((a, b) => mass(b.complexity, b.sloc) - mass(a.complexity, a.sloc))
+		.toSorted((a, b) => mass(b.complexity, b.sloc) - mass(a.complexity, a.sloc))
 		.slice(0, limit);
 }
 

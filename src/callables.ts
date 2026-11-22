@@ -72,7 +72,7 @@ function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<num
 	const perStatement = new Map<number, number>();
 	if (statements.length === 0 || bindings.length === 0) return perStatement;
 
-	const bySizeAsc = [...statements].sort((a, b) => size(a) - size(b));
+	const bySizeAsc = statements.toSorted((a, b) => size(a) - size(b));
 
 	for (const binding of bindings) {
 		for (const statement of bySizeAsc) {
@@ -183,7 +183,7 @@ export function buildCallables(
 
 		// Innermost-first. Scanning this order lets the containment search stop at
 		// the first hit, which is by construction the tightest enclosing callable.
-		const bySizeAsc = [...spans].sort((a, b) => size(a) - size(b));
+		const bySizeAsc = spans.toSorted((a, b) => size(a) - size(b));
 		const complexity = new Map<Span, number>(bySizeAsc.map((s) => [s, 1]));
 
 		for (const dp of decisionPointsByFile.get(file) ?? []) {

@@ -52,7 +52,7 @@ export async function resolveFiles(cfg: LanguageConfig, root: string): Promise<s
 	const excludes = (cfg.exclude ?? []).map((p) => new Glob(p));
 	const kept = [...found].filter((file) => !excludes.some((g) => g.match(file)));
 
-	return kept.sort();
+	return kept.toSorted();
 }
 
 /**

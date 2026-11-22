@@ -141,6 +141,7 @@ export async function scan(source: RuleSource, files: string[], cwd: string): Pr
 		} catch (err) {
 			throw new Error(
 				`ast-grep produced unparseable JSON for ${source.path}: ${(err as Error).message}`,
+				{ cause: err },
 			);
 		}
 		// Re-relativise so downstream keys are stable regardless of how the

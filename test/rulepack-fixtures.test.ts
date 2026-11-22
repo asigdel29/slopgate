@@ -39,7 +39,7 @@ async function allRules(): Promise<RuleFile[]> {
 		} catch {
 			continue;
 		}
-		for (const entry of entries.filter((e) => e.endsWith(".yml")).sort()) {
+		for (const entry of entries.filter((e) => e.endsWith(".yml")).toSorted()) {
 			rules.push({ language, id: entry.replace(/\.yml$/, ""), path: join(dir, entry) });
 		}
 	}
@@ -64,7 +64,7 @@ async function firedLines(rulePath: string, fixturePath: string): Promise<number
 	const trimmed = stdout.trim();
 	if (trimmed === "") return [];
 	const matches = JSON.parse(trimmed) as Array<{ range: { start: { line: number } } }>;
-	return [...new Set(matches.map((m) => m.range.start.line))].sort((a, b) => a - b);
+	return [...new Set(matches.map((m) => m.range.start.line))].toSorted((a, b) => a - b);
 }
 
 const rules = await allRules();

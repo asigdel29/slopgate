@@ -24,7 +24,7 @@ export type HotCallable = {
 
 /** Callables grouped by file and name, each group most complex first. */
 function byFileAndName(callables: Callable[]): Map<string, Callable[]> {
-	const sorted = [...callables].sort((a, b) => b.complexity - a.complexity);
+	const sorted = callables.toSorted((a, b) => b.complexity - a.complexity);
 	return Map.groupBy(sorted, (c) => `${c.file}\u0000${c.name ?? ""}`);
 }
 
@@ -66,5 +66,5 @@ export function findHotCallables(head: Callable[], base: Callable[]): HotCallabl
 			});
 		});
 	}
-	return hot.sort((a, b) => b.complexity - a.complexity);
+	return hot.toSorted((a, b) => b.complexity - a.complexity);
 }

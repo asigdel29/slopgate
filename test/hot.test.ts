@@ -97,28 +97,28 @@ describe("formatHotCallables", () => {
 	});
 });
 
+function configFor(language: "typescript" | "swift", file: string): SlopConfig {
+	return {
+		languages: { [language]: { include: [file], exclude: [] } },
+		maxDelta: { erosion: null, verbosity: null },
+		thresholds: { erosion: null, verbosity: null },
+		calibratedAtRulePackVersion: 0,
+	};
+}
+
 describe("callable names and waivers (ast-grep)", () => {
 	const FIXTURES = join(import.meta.dir, "fixtures");
-
-	function configFor(language: "typescript" | "swift", file: string): SlopConfig {
-		return {
-			languages: { [language]: { include: [file], exclude: [] } },
-			maxDelta: { erosion: null, verbosity: null },
-			thresholds: { erosion: null, verbosity: null },
-			calibratedAtRulePackVersion: 0,
-		};
-	}
 
 	async function namesIn(language: "typescript" | "swift", file: string) {
 		const { callables } = await measure(configFor(language, file), FIXTURES);
 		return callables
-			.sort((a, b) => a.startByte - b.startByte)
+			.toSorted((a, b) => a.startByte - b.startByte)
 			.map((c) => ({ line: c.startLine + 1, name: c.name, waived: c.waived }));
 	}
 
 	test("TypeScript: declarations, methods, bound arrows, and a waiver", async () => {
 		expect(await namesIn("typescript", "typescript/names.ts")).toEqual([
-			{ line: 4, name: "runTurn", waived: false },
+			{ line: 4, name: "runJob", waived: false },
 			{ line: 9, name: "handle", waived: false },
 			{ line: 13, name: "value", waived: false },
 			{ line: 19, name: "run", waived: false },
