@@ -76,7 +76,11 @@ describe("loadConfig", () => {
 	});
 
 	test("rejects an entirely missing thresholds object", async () => {
-		const path = await configFile({ languages: validLanguages, maxDelta: noDelta, calibratedAtRulePackVersion: 0 });
+		const path = await configFile({
+			languages: validLanguages,
+			maxDelta: noDelta,
+			calibratedAtRulePackVersion: 0,
+		});
 		await expect(loadConfig(path)).rejects.toThrow(/`thresholds` must be an object/);
 	});
 

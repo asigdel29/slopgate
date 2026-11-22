@@ -21,7 +21,6 @@ function isWhitespaceByte(b: number): boolean {
 	return b === SPACE || b === TAB || b === CR || b === LF;
 }
 
-
 /**
  * Whether `buf` decodes as UTF-8. The fatal TextDecoder throws on malformed
  * input, which is the cheapest reliable check available.
@@ -64,7 +63,10 @@ export async function resolveFiles(cfg: LanguageConfig, root: string): Promise<s
  * a comment. That handles trailing comments (`foo() // why`) correctly — the
  * line is code — and comment-only lines correctly — the line is not.
  */
-export function classifyLines(contents: Buffer, commentSpans: Array<[number, number]>): Set<number> {
+export function classifyLines(
+	contents: Buffer,
+	commentSpans: Array<[number, number]>,
+): Set<number> {
 	// Byte-indexed mask of comment coverage. One pass over the spans beats a
 	// per-byte search through them, and files here are small enough that the
 	// allocation is irrelevant.

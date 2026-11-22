@@ -258,7 +258,13 @@ describe("buildCallables", () => {
 });
 
 describe("retargetRuleText", () => {
-	const authored = ["id: dp-if", "language: typescript", "severity: hint", "rule:", "  kind: if_statement"].join("\n");
+	const authored = [
+		"id: dp-if",
+		"language: typescript",
+		"severity: hint",
+		"rule:",
+		"  kind: if_statement",
+	].join("\n");
 
 	test("rewrites the language and suffixes the id so tsx rules stay unique", () => {
 		const out = retargetRuleText(authored, "tsx", "-tsx");
@@ -269,7 +275,9 @@ describe("retargetRuleText", () => {
 	});
 
 	test("leaves indented keys alone, so only top-level fields are rewritten", () => {
-		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join("\n");
+		const nested = ["id: x", "language: typescript", "rule:", "  has:", "    language: nope"].join(
+			"\n",
+		);
 		const out = retargetRuleText(nested, "tsx", "-tsx");
 		expect(out).toContain("    language: nope");
 		expect(out.split("\n").filter((l) => l === "language: tsx")).toHaveLength(1);

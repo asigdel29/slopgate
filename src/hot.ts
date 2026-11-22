@@ -54,8 +54,7 @@ export function findHotCallables(head: Callable[], base: Callable[]): HotCallabl
 		const baseGroup = baseGroups.get(key) ?? [];
 		group.forEach((c, i) => {
 			if (c.complexity <= HIGH_COMPLEXITY_CUTOFF || c.waived) return;
-			const moved =
-				baseGroup.length === 0 && c.name !== null ? baseByName.get(c.name) : undefined;
+			const moved = baseGroup.length === 0 && c.name !== null ? baseByName.get(c.name) : undefined;
 			const match = baseGroup[i] ?? (moved?.length === 1 ? moved[0] : undefined);
 			if (match !== undefined && c.complexity <= match.complexity) return;
 			hot.push({

@@ -105,10 +105,7 @@ describe("rule pack", () => {
 	test(
 		"the pack runs for Swift too",
 		async () => {
-			const { metrics } = await measure(
-				configFor("swift", ["swift/complexity.swift"]),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("swift", ["swift/complexity.swift"]), FIXTURES);
 			// branching() has exactly one guard statement.
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
@@ -121,10 +118,7 @@ describe("rule pack", () => {
 			// view.tsx has two ternaries. They only match if the authored
 			// `language: typescript` pack is re-targeted to the tsx grammar — the
 			// same dialect problem the structural rules have, on a second code path.
-			const { metrics } = await measure(
-				configFor("typescript", ["typescript/view.tsx"]),
-				FIXTURES,
-			);
+			const { metrics } = await measure(configFor("typescript", ["typescript/view.tsx"]), FIXTURES);
 			expect(metrics.detail.flaggedLines).toBeGreaterThan(0);
 		},
 		TIMEOUT_MS,

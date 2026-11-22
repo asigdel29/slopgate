@@ -62,7 +62,10 @@ describe("findHotCallables", () => {
 	test("compares same-named callables in a file by rank, not position", () => {
 		const base = [callable("execute", 20, "a.ts", 0), callable("execute", 12, "a.ts", 100)];
 		// A simple sibling added above both shifts every position but no rank.
-		const sibling = [callable("execute", 3, "a.ts", 0), ...base.map((c) => ({ ...c, startByte: c.startByte + 50 }))];
+		const sibling = [
+			callable("execute", 3, "a.ts", 0),
+			...base.map((c) => ({ ...c, startByte: c.startByte + 50 })),
+		];
 		expect(findHotCallables(sibling, base)).toEqual([]);
 		const grown = [callable("execute", 20, "a.ts", 0), callable("execute", 13, "a.ts", 120)];
 		expect(findHotCallables(grown, base).map((h) => h.baseComplexity)).toEqual([12]);
@@ -77,7 +80,10 @@ describe("findHotCallables", () => {
 	});
 
 	test("lists the most complex offender first", () => {
-		const hot = findHotCallables([callable("small", 12, "a.ts", 0), callable("big", 40, "a.ts", 50)], []);
+		const hot = findHotCallables(
+			[callable("small", 12, "a.ts", 0), callable("big", 40, "a.ts", 50)],
+			[],
+		);
 		expect(hot.map((h) => h.name)).toEqual(["big", "small"]);
 	});
 });
@@ -110,29 +116,21 @@ describe("callable names and waivers (ast-grep)", () => {
 			.map((c) => ({ line: c.startLine + 1, name: c.name, waived: c.waived }));
 	}
 
-	test(
-		"TypeScript: declarations, methods, bound arrows, and a waiver",
-		async () => {
-			expect(await namesIn("typescript", "typescript/names.ts")).toEqual([
-				{ line: 4, name: "runTurn", waived: false },
-				{ line: 9, name: "handle", waived: false },
-				{ line: 13, name: "value", waived: false },
-				{ line: 19, name: "run", waived: false },
-				{ line: 24, name: "parse", waived: true },
-			]);
-		},
-		60_000,
-	);
+	test("TypeScript: declarations, methods, bound arrows, and a waiver", async () => {
+		expect(await namesIn("typescript", "typescript/names.ts")).toEqual([
+			{ line: 4, name: "runTurn", waived: false },
+			{ line: 9, name: "handle", waived: false },
+			{ line: 13, name: "value", waived: false },
+			{ line: 19, name: "run", waived: false },
+			{ line: 24, name: "parse", waived: true },
+		]);
+	}, 60_000);
 
-	test(
-		"Swift: a computed property, an attributed function, and init",
-		async () => {
-			expect(await namesIn("swift", "swift/names.swift")).toEqual([
-				{ line: 4, name: "body", waived: false },
-				{ line: 8, name: "footer", waived: false },
-				{ line: 13, name: "init", waived: false },
-			]);
-		},
-		60_000,
-	);
+	test("Swift: a computed property, an attributed function, and init", async () => {
+		expect(await namesIn("swift", "swift/names.swift")).toEqual([
+			{ line: 4, name: "body", waived: false },
+			{ line: 8, name: "footer", waived: false },
+			{ line: 13, name: "init", waived: false },
+		]);
+	}, 60_000);
 });

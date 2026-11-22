@@ -8,12 +8,12 @@ The paper measured what happens when coding agents repeatedly extend their own
 work. The headline result is not that agents write bad code — it is that they
 **pass their tests while the code decays underneath them**:
 
-| | |
-|---|---|
-| Structural erosion rose in | **77%** of trajectories |
-| Verbosity rose in | **75.5%** of trajectories |
+|                                       |                                             |
+| ------------------------------------- | ------------------------------------------- |
+| Structural erosion rose in            | **77%** of trajectories                     |
+| Verbosity rose in                     | **75.5%** of trajectories                   |
 | Agent code vs. a 473-repo human panel | **2.0×** more eroded, **2.3×** more verbose |
-| Degradation speed vs. human commits | **5×** (erosion), **~7×** (verbosity) |
+| Degradation speed vs. human commits   | **5×** (erosion), **~7×** (verbosity)       |
 
 Lint, typecheck, dead-code and coverage gates are all blind to this. `slopgate`
 computes the paper's two metrics over a repository and fails the build when a
@@ -37,7 +37,7 @@ The square root compresses size so branching dominates rather than raw length.
 The `CC > 10` cutoff is Radon's high-complexity bound and is not configurable —
 it is what keeps results comparable to the paper's.
 
-Erosion rises when branches are patched into functions that are *already* big,
+Erosion rises when branches are patched into functions that are _already_ big,
 and falls when that logic is extracted. It is a ratio, so a codebase can grow
 without eroding.
 
@@ -194,7 +194,7 @@ A statement with n optional bindings contributes n-1 decision points on top of
 the `if`/`guard` itself, attributed to the innermost enclosing statement so a
 nested `if let` does not inflate the one around it.
 
-Remaining gap: a *mixed* clause list such as `if let x = a, z > 0` — a binding
+Remaining gap: a _mixed_ clause list such as `if let x = a, z > 0` — a binding
 followed by a plain expression — still counts as one. Matching the expression
 clauses needs ast-grep's `condition` field, which this version reports
 inconsistently (it does not compose with `any:`, and miscounts on its own). The
@@ -203,11 +203,11 @@ misfiring, and pure-binding lists, which are the common form, are exact.
 
 ## Environment overrides
 
-| variable | effect |
-|---|---|
+| variable         | effect                                                                            |
+| ---------------- | --------------------------------------------------------------------------------- |
 | `SLOP_RULES_DIR` | use a different rule pack (must contain `VERSION` and one directory per language) |
-| `SLOP_AST_GREP` | path to a specific ast-grep binary |
-| `SLOP_JSCPD` | path to a specific jscpd binary |
+| `SLOP_AST_GREP`  | path to a specific ast-grep binary                                                |
+| `SLOP_JSCPD`     | path to a specific jscpd binary                                                   |
 
 Pin the analyser paths in CI if you need the metric to be reproducible across
 runners — a different analyser version can move the number.

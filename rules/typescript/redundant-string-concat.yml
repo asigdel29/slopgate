@@ -8,5 +8,5 @@ metadata:
   upstream: verbose-string-concat-str
 rule:
   any:
-    - pattern: "\"\" + $X"
-    - pattern: "$X + \"\""
+    - pattern: '"" + $X'
+    - pattern: '$X + ""'

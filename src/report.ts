@@ -96,7 +96,9 @@ export function formatReport(
 				`+${DEGRADATION_VELOCITY.agentPerCheckpoint.verbosity} — 5x and ~7x faster. ` +
 				"So this gate asks whether the change degrades the",
 		);
-		lines.push("  codebase faster than a person typically would, not whether the codebase is good.");
+		lines.push(
+			"  codebase faster than a person typically would, not whether the codebase is good.",
+		);
 	}
 
 	const ceilings = config.thresholds;
@@ -127,7 +129,11 @@ export function formatReport(
  * A GitHub Actions error annotation. Matches the `::error::` convention the
  * coverage gate already uses, so a failure surfaces the same way in the UI.
  */
-export function formatFailure(metric: "erosion" | "verbosity", value: number, ceiling: number): string {
+export function formatFailure(
+	metric: "erosion" | "verbosity",
+	value: number,
+	ceiling: number,
+): string {
 	return (
 		`::error::${metric} ${pct(value)} exceeds the ${ceiling} ratchet ceiling — ` +
 		`this change concentrates complexity or adds redundant code. ` +

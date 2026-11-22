@@ -156,9 +156,7 @@ export async function loadConfig(configPath: string): Promise<SlopConfig> {
 	}
 
 	if (problems.length > 0) {
-		throw new Error(
-			`${configPath} is not a usable slop config:\n  - ${problems.join("\n  - ")}`,
-		);
+		throw new Error(`${configPath} is not a usable slop config:\n  - ${problems.join("\n  - ")}`);
 	}
 
 	return config;
@@ -221,7 +219,10 @@ async function main(): Promise<number> {
 		typeof config.thresholds.erosion === "number" ||
 		typeof config.thresholds.verbosity === "number";
 
-	if (usesAbsoluteThreshold && config.calibratedAtRulePackVersion !== metrics.detail.rulePackVersion) {
+	if (
+		usesAbsoluteThreshold &&
+		config.calibratedAtRulePackVersion !== metrics.detail.rulePackVersion
+	) {
 		console.error("");
 		console.error(
 			`::error::rule pack is v${metrics.detail.rulePackVersion} but the ceilings in ` +

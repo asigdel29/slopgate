@@ -77,31 +77,26 @@ describe("rule pack fixtures", () => {
 	});
 
 	for (const rule of rules) {
-		test(
-			`${rule.language}/${rule.id} fires on exactly its marked lines`,
-			async () => {
-				const fixturePath = join(
-					FIXTURE_ROOT,
-					rule.language,
-					`${rule.id}.${EXTENSION[rule.language]}`,
-				);
-				const file = Bun.file(fixturePath);
-				expect(
-					await file.exists(),
-					`missing fixture ${fixturePath} — every rule needs one`,
-				).toBe(true);
+		test(`${rule.language}/${rule.id} fires on exactly its marked lines`, async () => {
+			const fixturePath = join(
+				FIXTURE_ROOT,
+				rule.language,
+				`${rule.id}.${EXTENSION[rule.language]}`,
+			);
+			const file = Bun.file(fixturePath);
+			expect(await file.exists(), `missing fixture ${fixturePath} — every rule needs one`).toBe(
+				true,
+			);
 
-				const source = await file.text();
-				const expected = expectedLines(source);
+			const source = await file.text();
+			const expected = expectedLines(source);
 
-				// A fixture with no marked lines proves nothing about the positive
-				// case, which is the whole point of the exercise.
-				expect(expected.length, `${rule.id} fixture has no ${MARKER} markers`).toBeGreaterThan(0);
+			// A fixture with no marked lines proves nothing about the positive
+			// case, which is the whole point of the exercise.
+			expect(expected.length, `${rule.id} fixture has no ${MARKER} markers`).toBeGreaterThan(0);
 
-				const fired = await firedLines(rule.path, fixturePath);
-				expect(fired).toEqual(expected);
-			},
-			30_000,
-		);
+			const fired = await firedLines(rule.path, fixturePath);
+			expect(fired).toEqual(expected);
+		}, 30_000);
 	}
 });
