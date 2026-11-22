@@ -1,7 +1,7 @@
 // Configuration + shared types for the slop gate.
 //
 // The engine itself is repo-agnostic: everything repo-specific (which files to
-// measure, what the ratchet ceilings are) lives in scripts/slop.config.json, so
+// measure, what the ratchet ceilings are) lives in the repository's slop.config.json, so
 // this directory stays byte-identical wherever it is vendored.
 
 /** Languages the structural rule packs cover. One authored rule file each. */

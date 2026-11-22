@@ -54,17 +54,42 @@ the number.
 
 ## Install
 
+slopgate is not on npm. Add it from GitHub:
+
 ```sh
-bun add -d slopgate    # or: npm i -D slopgate
+bun add -d github:asigdel29/slopgate
 ```
 
-Requires [Bun](https://bun.sh). The two analysers it shells out to
+It needs [Bun](https://bun.sh). The two analysers that it calls
 ([ast-grep](https://ast-grep.github.io) for parsing,
 [jscpd](https://jscpd.dev) for clone detection) are pinned dependencies.
 
+## Set up a repository
+
+```sh
+bunx slopgate init            # add --force to overwrite files that exist
+```
+
+`init` copies these files into the repository. It does not overwrite a file that exists.
+
+| File                                     | What it is                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `slop.config.json`                       | The files to measure and the limits                                                             |
+| `.github/workflows/slopgate.yml`         | A CI job that gates each pull request                                                           |
+| `.github/instructions/*.instructions.md` | Rules for agents and reviewers: comments, tests, TypeScript, the slop gate, the review workflow |
+| `.claude/rules/*.md`                     | Links to the rules, where Claude Code reads them                                                |
+| `.claude/skills/*`                       | The skills: `fixit`, `writing-style`, `release-test`, `preview-test`                            |
+
+To get only the skills, install the plugin in Claude Code:
+
+```text
+/plugin marketplace add asigdel29/slopgate
+/plugin install slopgate@slopgate
+```
+
 ## Use
 
-Write a `slop.config.json` at the root of the repo you want to gate:
+`slop.config.json` at the root of the repository tells slopgate what to measure:
 
 ```json
 {
@@ -74,42 +99,60 @@ Write a `slop.config.json` at the root of the repo you want to gate:
       "exclude": ["**/node_modules/**", "**/*.test.ts"]
     }
   },
+  "maxDelta": { "erosion": 0.0053, "verbosity": 0.0022 },
+  "hotCallables": true,
   "thresholds": { "erosion": null, "verbosity": null },
-  "calibratedAtRulePackVersion": 0
+  "calibratedAtRulePackVersion": 1
 }
 ```
 
-Measure, then set the ceilings:
+Each key is required except `hotCallables`. A key with a wrong type stops the run with an error, so a typo cannot turn the gate off. `examples/slop.config.json` explains each key.
 
 ```sh
-slopgate --report     # print the numbers, never fails
-slopgate              # gate: exit 1 if a metric is over its ceiling
-slopgate --json       # machine-readable
+slopgate --report                  # measure and print; always exits 0
+slopgate --base origin/main        # the gate: measure the base too, and fail on the change
+slopgate --json                    # machine-readable; always exits 0
 ```
+
+| Flag                | Effect                                                                         |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `--root <dir>`      | The repository to measure. The default is the current directory.               |
+| `--config <path>`   | The config file. The default is `<root>/slop.config.json`.                     |
+| `--base <ref>`      | Also measure this revision, and gate on the difference. This is the main gate. |
+| `--report`          | Print the report and exit 0.                                                   |
+| `--json`            | Print the JSON and exit 0.                                                     |
+| `--json-out <path>` | Also write the JSON to `<path>`, and still gate.                               |
+
+When `maxDelta` or `hotCallables` is set, the gate needs `--base`. Without it, the run fails, because the change was not measured. The exit code is 0 for a pass and 1 for a failed gate or an error.
+
+This is the output of slopgate on its own source:
 
 ```
 Code degradation metrics — SlopCodeBench (arXiv:2603.24755)
 
-  Structural erosion  0.5203   (108/1678 callables over CC 10, 23181/44552 complexity mass)
-  Verbosity           0.0867   (4174/48152 source lines; 0 rule-flagged, 4174 cloned, deduplicated)
+  Structural erosion  0.6305   (7/54 callables over CC 10, 1024/1624 complexity mass)
+  Verbosity           0.0031   (4/1289 source lines; 4 rule-flagged, 0 cloned, deduplicated)
 
-  Measured over 332 files, rule pack v0.
+  Measured over 14 files, rule pack v1.
   ...
   Highest complexity mass:
-    src/index.ts:113  CC 219, 699 SLOC, mass 5790
+    src/callables.ts:125  CC 33, 89 SLOC, mass 311
 ```
 
-The report ends with the callables holding the most complexity mass — where to
-look when erosion is what failed.
+The report ends with the callables that hold the most complexity mass. Look there first when erosion fails.
 
-In CI, gate and keep the numbers from the same scan:
+### In CI
+
+`examples/slopgate.yml` is a complete job. `init` copies it. The two important parts are:
+
+- `fetch-depth: 0` on the checkout. The merge base must be in the clone.
+- `--base` set to the base SHA of the pull request, with `--json-out` to keep the numbers from the same scan.
 
 ```sh
-slopgate --base origin/main --json-out slop.json   # gates, and writes the JSON too
+slopgate --base "$BASE_SHA" --json-out slop-metrics.json
 ```
 
-`--json` alone always exits 0, so a job that needs both the verdict and the
-numbers would otherwise have to measure twice.
+The JSON has the head metrics at the top level, the base metrics under `base` (or `null` without `--base`), and the hot callables under `hot` (or `null` when `hotCallables` is off). `detail` has the counts behind each ratio.
 
 ### The hot-callable ratchet
 
@@ -134,27 +177,23 @@ deliberately, put a comment containing `slopgate-allow: <reason>` on the line
 directly above it, where review will see it. The JSON output lists offenders
 under `hot`.
 
-## Choosing a ceiling
+## Choosing the limits
 
-`thresholds` are **ceilings**, and they are a one-way ratchet: lower is better,
-so they only ever move down. Never raise one to make a red build green.
-
-The recommended value is **what you measure today, plus the paper's median
-_human_ per-commit velocity**:
+`maxDelta` is the main gate. It is the largest increase that one change may cause in each metric. The defaults are the paper's median per-commit velocity for _human_ commits:
 
 ```
-erosion   ceiling = measured + 0.0053
-verbosity ceiling = measured + 0.0022
+erosion   maxDelta = 0.0053
+verbosity maxDelta = 0.0022
 ```
 
-That makes the gate assert something the paper actually justifies:
+The gate then makes one claim that the paper supports:
 
-> this change may degrade the codebase no faster than a typical human commit in
+> this change degrades the codebase no faster than a typical human commit in
 > the 473-repo panel does.
 
-For scale, the paper's agent checkpoints move erosion **+0.0264** and verbosity
-**+0.0144** per step. A change that trips this gate is degrading the codebase at
-agent speed. Every run prints the remaining headroom.
+For scale, the paper's agent checkpoints move erosion **+0.0264** and verbosity **+0.0144** for each step. A change that fails this gate degrades the codebase at agent speed. An improvement always passes.
+
+`thresholds` are an optional absolute backstop, normally `null`. An absolute ceiling on a ratio for the whole repository is a budget for all time, not a limit for each change: the first changes use it up, and each later change then fails. If you set one, set it far above the value today, and only lower it. Never raise a limit to make a failed build pass.
 
 ### Don't gate on the paper's absolute numbers
 
@@ -228,19 +267,11 @@ doesn't produce spurious diffs.
 
 ## Status
 
-The verbosity metric has two halves. Clone detection is complete. The
-**rule-flagged half is not yet implemented**: the paper's 203 slop rules
-([`configs/slop_rules.yaml`][upstream-rules]) are all `language: python` and
-have to be re-authored per language. `rules/VERSION` is `0` and the rule
-directories are empty, so verbosity currently measures duplication only — a
-correct half of Eq. 4, not an approximation of the whole.
+The verbosity metric has two halves. Clone detection is complete. The rule-flagged half is in progress: the paper's slop rules ([`configs/slop_rules.yaml`][upstream-rules]) are all `language: python`, so each rule must be written again for each language. `rules/VERSION` is `1`, and the pack has 13 rules: 7 for TypeScript and 6 for Swift. [`rules/PORTING.md`](rules/PORTING.md) is the ledger of each rule.
 
-Rule packs will land in batches. Because adding rules can only push verbosity
-up, the gate hard-fails when `rules/VERSION` doesn't match the config's
-`calibratedAtRulePackVersion`, rather than silently comparing incomparable
-numbers. See [`rules/PORTING.md`](rules/PORTING.md) for the port ledger.
+A new rule can only push verbosity up. A delta is not affected, because the base and the head use the same pack in the same run. An absolute threshold is affected, so when a threshold is set, the run fails if `calibratedAtRulePackVersion` is not equal to `rules/VERSION`.
 
-Erosion is complete and language-agnostic — CC and SLOC carry over directly.
+Erosion is complete and does not depend on the language: CC and SLOC carry over directly.
 
 ## Relation to the original
 
