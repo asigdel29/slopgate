@@ -37,14 +37,14 @@ repo = "local"
 id = "oxfmt"
 name = "oxfmt"
 language = "system"
-entry = "bunx oxfmt --no-error-on-unmatched-pattern"
+entry = "bun run fmt --no-error-on-unmatched-pattern"
 files = '\.(ts|tsx|js|jsonc?|ya?ml|md)$'
 
 [[repos.hooks]]
 id = "oxlint"
 name = "oxlint --fix"
 language = "system"
-entry = "bunx oxlint --fix --deny-warnings --no-error-on-unmatched-pattern"
+entry = "bun run lint:fix --no-error-on-unmatched-pattern"
 files = '\.(ts|tsx|js)$'
 
 [[repos.hooks]]
@@ -53,7 +53,7 @@ name = "tsc"
 language = "system"
 entry = "bun run typecheck"
 pass_filenames = false
-always_run = true
+files = '(\.ts$|^package\.json$|^tsconfig\.json$)'
 
 [[repos.hooks]]
 id = "knip"
@@ -61,7 +61,7 @@ name = "knip (unused code)"
 language = "system"
 entry = "bun run knip"
 pass_filenames = false
-always_run = true
+files = '(\.ts$|^package\.json$|^knip\.jsonc$)'
 
 # Scan only the staged diff, so ignored local files are never read.
 [[repos.hooks]]

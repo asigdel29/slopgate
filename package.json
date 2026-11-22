@@ -29,7 +29,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --deny-warnings",
-    "lint:fix": "oxlint --fix",
+    "lint:fix": "oxlint --fix --deny-warnings",
     "typecheck": "tsc --noEmit",
     "knip": "knip-bun",
     "slop": "bun bin/slopgate.ts --base main",
@@ -47,8 +47,5 @@
     "oxfmt": "0.77.0",
     "oxlint": "1.92.0",
     "typescript": "^6.0.3"
-  },
-  "trustedDependencies": [
-    "@ast-grep/cli"
-  ]
+  }
 }

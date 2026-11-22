@@ -36,7 +36,16 @@ cp -R "$here/bin" "$dest/bin"
 cp -R "$here/src" "$dest/src"
 cp -R "$here/structural" "$dest/structural"
 cp -R "$here/rules" "$dest/rules"
-cp "$here/vendor/package.json" "$dest/package.json"
+# The vendored manifest pins the analysers from this package.json, so the
+# vendored copy can never run a different analyser version than this repo
+# tests with. It is separate from the host's own dependency tree: these are CI
+# tooling, and keeping them here keeps them out of the host's lockfile,
+# unused-dependency scans and typechecks.
+bun -e '
+const root = await Bun.file(process.argv[1]).json();
+const manifest = { name: "slop-vendored", private: true, type: "module", dependencies: root.dependencies };
+await Bun.write(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
+' "$here/package.json" "$dest/package.json"
 
 # The wrapper is upstream-owned too, so it is refreshed on every vendor.
 cp "$here/vendor/slop-gate.sh" "$target/scripts/slop-gate.sh"

@@ -49,7 +49,7 @@ jobs:
         run: bun bin/slopgate.ts --base "${{ github.event.pull_request.base.sha }}" --json-out slop-metrics.json
       - name: Slop report
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
-        run: bun bin/slopgate.ts --report
+        run: bun run self --json-out slop-metrics.json
       - name: Upload slop metrics
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -72,7 +72,7 @@ jobs:
       # The suites call the real ast-grep and jscpd on the fixtures, so this
       # also proves that the pinned analysers work on Linux.
       - name: Tests and coverage floor
-        run: sh scripts/coverage-gate.sh
+        run: bun run coverage
 
   secrets:
     name: Secret scan

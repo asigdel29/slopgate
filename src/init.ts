@@ -10,88 +10,70 @@ import { parseArgs } from "node:util";
 import { PACKAGE_DIR } from "./measure.ts";
 
 /** Suffix of an agent rule file. Copilot reads these from .github/instructions. */
-const RULE_SUFFIX = ".instructions.md";
+export const RULE_SUFFIX = ".instructions.md";
 
-/** One file that init writes, as paths relative to the package and to the target. */
-type KitFile = { from: string; to: string };
-
-/** What init did, as target-relative paths, so the caller can report it. */
-type InitResult = { created: string[]; skipped: string[] };
+/**
+ * The target of the .claude/rules link for rule `name`, relative to the link.
+ * Claude Code reads rules from .claude/rules, so each one links to the single
+ * copy in .github/instructions.
+ */
+export function ruleLink(name: string): string {
+	return `../../.github/instructions/${name}${RULE_SUFFIX}`;
+}
 
 /**
  * Package-relative paths of the files that match `pattern`. Dotfiles such as
  * .DS_Store are left out, so a local clone cannot leak them into a target.
  */
 function scanPackage(pattern: string): Promise<string[]> {
-	return Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: PACKAGE_DIR, onlyFiles: true }));
+	return Array.fromAsync(new Bun.Glob(pattern).scan(PACKAGE_DIR));
 }
 
 /**
- * The kit, read from the package directory. Fails when the package has no
- * rules or skills, which is the case for a vendored copy: init must run from an
- * installed package or a clone.
- */
-async function kitFiles(): Promise<KitFile[]> {
-	// Bun.Glob does not match a brace group that holds a path, so scan twice.
-	const scanned = [
-		...(await scanPackage(".claude/skills/**/*")),
-		...(await scanPackage(`.github/instructions/*${RULE_SUFFIX}`)),
-	];
-	if (!scanned.some((file) => file.endsWith(RULE_SUFFIX))) {
-		throw new Error(`no kit files in ${PACKAGE_DIR}; run init from an installed slopgate`);
-	}
-	return [
-		...scanned.toSorted().map((file) => ({ from: file, to: file })),
-		{ from: "examples/slop.config.json", to: "slop.config.json" },
-		{ from: "examples/slopgate.yml", to: ".github/workflows/slopgate.yml" },
-	];
-}
-
-/** Whether anything, a dangling symlink included, exists at `path`. */
-async function exists(path: string): Promise<boolean> {
-	return lstat(path).then(
-		() => true,
-		() => false,
-	);
-}
-
-/**
- * Copy the kit into `target` and link each rule into .claude/rules, where
- * Claude Code reads it. Never overwrites a path unless `force` is set, so a
+ * Copy the kit into `target` and link each rule into .claude/rules. Prints one
+ * line for each path. Never overwrites a path unless `force` is set, so a
  * second run is safe and keeps local edits. On `force` an existing path is
  * removed first, because symlink() does not replace.
  *
- * Refuses to run on the package itself: there the source and the destination
- * of each kit file are the same path, and `force` would delete it.
+ * Fails when the package has no rules, which is the case for a vendored copy,
+ * and refuses to run on the package itself: there the source and the
+ * destination of each kit file are the same path, and `force` would delete it.
  */
-async function init(target: string, force: boolean): Promise<InitResult> {
+async function init(target: string, force: boolean): Promise<void> {
 	if ((await realpath(target).catch(() => target)) === (await realpath(PACKAGE_DIR))) {
 		throw new Error(`${target} is the slopgate package itself; run init in another repository`);
 	}
-	const result: InitResult = { created: [], skipped: [] };
+	const rules = await scanPackage(`.github/instructions/*${RULE_SUFFIX}`);
+	if (rules.length === 0) {
+		throw new Error(`no kit files in ${PACKAGE_DIR}; run init from an installed slopgate`);
+	}
+	const skills = await scanPackage(".claude/skills/**/*");
+
 	const place = async (to: string, write: (path: string) => Promise<void>): Promise<void> => {
 		const path = join(target, to);
-		const present = await exists(path);
+		const present = await lstat(path).then(
+			() => true,
+			() => false,
+		);
 		if (present && !force) {
-			result.skipped.push(to);
+			console.log(`skipped  ${to} (exists; --force overwrites)`);
 			return;
 		}
 		if (present) await unlink(path);
 		await mkdir(dirname(path), { recursive: true });
 		await write(path);
-		result.created.push(to);
+		console.log(`created  ${to}`);
 	};
-	const files = await kitFiles();
-	for (const { from, to } of files) {
-		await place(to, (path) => copyFile(join(PACKAGE_DIR, from), path));
+	const copy = (from: string, to: string) =>
+		place(to, (path) => copyFile(join(PACKAGE_DIR, from), path));
+
+	for (const file of [...skills, ...rules].toSorted()) await copy(file, file);
+	await copy("examples/slop.config.json", "slop.config.json");
+	await copy("examples/slopgate.yml", ".github/workflows/slopgate.yml");
+	for (const rule of rules.toSorted()) {
+		const name = basename(rule, RULE_SUFFIX);
+		await place(`.claude/rules/${name}.md`, (path) => symlink(ruleLink(name), path));
 	}
-	for (const { to } of files.filter((file) => file.to.endsWith(RULE_SUFFIX))) {
-		const name = basename(to, RULE_SUFFIX);
-		await place(`.claude/rules/${name}.md`, (path) =>
-			symlink(`../../.github/instructions/${name}${RULE_SUFFIX}`, path),
-		);
-	}
-	return result;
 }
 
 /** How to call the subcommand, printed for --help. */
@@ -100,39 +82,30 @@ const INIT_USAGE = `slopgate init [--root <dir>] [--force]
   Copy the agent rules, skills, slop config and CI workflow into the repository.
   Existing files are skipped unless --force is given.`;
 
-/**
- * What to do after init, printed once at the end. Bun blocks the postinstall
- * that puts the real ast-grep binary in place, so trusting it comes first.
- */
+/** What to do after init, printed once at the end. */
 const NEXT_STEPS = `Next steps:
-  1. Run: bun pm trust @ast-grep/cli
-     Bun blocks its postinstall by default, and without it ast-grep is a stub.
-  2. Edit the include globs in slop.config.json for this repository.
-  3. Add this line to AGENTS.md: "Before you edit a file, read each rule in
+  1. Edit the include globs in slop.config.json for this repository.
+  2. Add this line to AGENTS.md: "Before you edit a file, read each rule in
      .github/instructions whose applyTo glob matches it."
-  4. Run: bunx slopgate --report`;
+  3. Run: bunx slopgate --report`;
 
 /**
  * The `init` subcommand: parse its arguments, run init and print the result.
- * Returns the process exit code. Throws on an unknown argument.
+ * Throws on an unknown argument, before it writes anything.
  */
-export async function runInit(argv: string[]): Promise<number> {
+export async function runInit(argv: string[]): Promise<void> {
 	const { values } = parseArgs({
 		args: argv,
 		options: {
 			root: { type: "string", default: "." },
 			force: { type: "boolean", default: false },
-			help: { type: "boolean", short: "h", default: false },
+			help: { type: "boolean", short: "h" },
 		},
-		strict: true,
 	});
 	if (values.help) {
 		console.log(INIT_USAGE);
-		return 0;
+		return;
 	}
-	const { created, skipped } = await init(resolve(values.root), values.force);
-	for (const path of created) console.log(`created  ${path}`);
-	for (const path of skipped) console.log(`skipped  ${path} (exists; --force overwrites)`);
+	await init(resolve(values.root), values.force);
 	console.log(`\n${NEXT_STEPS}`);
-	return 0;
 }

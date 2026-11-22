@@ -300,5 +300,6 @@ async function main(): Promise<number> {
 // test process.
 if (import.meta.main) {
 	const [command, ...rest] = process.argv.slice(2);
-	process.exit(command === "init" ? await runInit(rest) : await main());
+	if (command === "init") await runInit(rest);
+	else process.exit(await main());
 }

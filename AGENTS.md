@@ -13,7 +13,7 @@ slopgate is a CI gate for two code-degradation metrics: structural erosion and v
 - `structural/`: the ast-grep rules that find callables and decision points.
 - `rules/`: the slop rule pack. `rules/VERSION` is its version. `rules/PORTING.md` is the port ledger.
 - `examples/`: the slop config and the CI workflow that `init` copies.
-- `vendor/`, `scripts/vendor.sh`: the files that copy the engine into a repository.
+- `vendor/slop-gate.sh`, `scripts/vendor.sh`: the files that copy the engine into a repository.
 - `.github/instructions/`: the agent rules. `.claude/skills/`: the skills. Both ship to other repositories through `init` and the plugin in `.claude-plugin/`.
 - `test/`: the suites. `test/fixtures/` is input to the analysers, not code.
 
@@ -38,7 +38,7 @@ slopgate is a CI gate for two code-degradation metrics: structural erosion and v
 - Write docs in Simplified Technical English (ASD-STE100).
 - Keep the CLI flags, the config keys and the JSON output stable. Repositories that copy the engine call them from CI.
 - Do not hand-edit `bun.lock`.
-- Keep the analyser pins in `package.json` and `vendor/package.json` equal. A test checks this.
+- The analyser pins are in `package.json` only. `scripts/vendor.sh` writes the vendored manifest from them.
 - Do not change a rule in `rules/` without its fixture in `test/fixtures/rules/`. Increase `rules/VERSION` when the pack changes what it flags.
 - `.claude/skills/fixit` is a copy of a third-party skill under the MIT license. Keep its `LICENSE` file.
 

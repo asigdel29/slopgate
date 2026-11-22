@@ -17,9 +17,6 @@
       },
     },
   },
-  "trustedDependencies": [
-    "@ast-grep/cli",
-  ],
   "packages": {
     "@ast-grep/cli": ["@ast-grep/cli@0.40.0", "", { "dependencies": { "detect-libc": "2.1.2" }, "optionalDependencies": { "@ast-grep/cli-darwin-arm64": "0.40.0", "@ast-grep/cli-darwin-x64": "0.40.0", "@ast-grep/cli-linux-arm64-gnu": "0.40.0", "@ast-grep/cli-linux-x64-gnu": "0.40.0", "@ast-grep/cli-win32-arm64-msvc": "0.40.0", "@ast-grep/cli-win32-ia32-msvc": "0.40.0", "@ast-grep/cli-win32-x64-msvc": "0.40.0" }, "bin": { "sg": "sg", "ast-grep": "ast-grep" } }, "sha512-L8AkflsfI2ZP70yIdrwqvjR02ScCuRmM/qNGnJWUkOFck+e6gafNVJ4e4jjGQlEul+dNdBpx36+O2Op629t47A=="],
 

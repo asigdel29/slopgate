@@ -27,15 +27,9 @@ async function runStep(name: string): Promise<number> {
 	return code;
 }
 
-/** Runs the steps one after another, as `&&` does, and returns the exit code of the first failure. */
-async function runAll(names: string[]): Promise<number> {
-	const [name, ...rest] = names;
-	if (name === undefined) {
-		return 0;
-	}
-	const code = await runStep(name);
-	return code === 0 ? runAll(rest) : code;
-}
-
+// The steps run one after another and stop at the first failure, as `&&` does.
 // exitCode, not process.exit(): the process ends after all output is flushed.
-process.exitCode = await runAll(Bun.argv.slice(2));
+for (const name of Bun.argv.slice(2)) {
+	process.exitCode = await runStep(name);
+	if (process.exitCode !== 0) break;
+}

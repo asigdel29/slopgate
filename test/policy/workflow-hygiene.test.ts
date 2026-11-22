@@ -9,8 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-
-const ROOT = join(import.meta.dir, "../..");
+import { PACKAGE_DIR as ROOT } from "../../src/measure.ts";
 
 /** Every workflow file this repository runs or ships, relative to the root. */
 const WORKFLOWS = [
@@ -42,10 +41,13 @@ describe("workflow hygiene", () => {
 	test.each(WORKFLOWS)("%s: every action is pinned to a full commit SHA", (file) => {
 		const unpinned = readFileSync(join(ROOT, file), "utf8")
 			.split("\n")
-			.map((line, index) => ({ line, index, ref: /^\s*(?:-\s+)?uses:\s*(\S+)/.exec(line)?.[1] }))
-			.filter(({ ref }) => ref !== undefined && !ref.startsWith("./"))
-			.filter(({ line, ref }) => !/@[0-9a-f]{40}$/.test(ref ?? "") || !/#\s*v\d/.test(line))
-			.map(({ index, ref }) => `${file}:${index + 1} ${ref}`);
+			.flatMap((line, index) => {
+				const ref = /^\s*(?:-\s+)?uses:\s*(\S+)/.exec(line)?.[1];
+				const pinned = /@[0-9a-f]{40}\s+#\s*v\d/.test(line);
+				return ref === undefined || ref.startsWith("./") || pinned
+					? []
+					: [`${file}:${index + 1} ${ref}`];
+			});
 		expect(unpinned).toEqual([]);
 	});
 });

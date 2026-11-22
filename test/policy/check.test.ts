@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const RUNNER = join(import.meta.dir, "../../scripts/check.ts");
-const scratch = await mkdtemp(join(tmpdir(), "run-silent-"));
+const scratch = await mkdtemp(join(tmpdir(), "check-runner-"));
 
 /** Package scripts for the runner: two that pass, one that fails with code 3, and one that fails after 2 MB of output. */
 const SCRIPTS = {
@@ -20,7 +20,7 @@ const SCRIPTS = {
 
 await writeFile(
 	join(scratch, "package.json"),
-	JSON.stringify({ name: "run-silent-fixture", scripts: SCRIPTS }),
+	JSON.stringify({ name: "check-fixture", scripts: SCRIPTS }),
 );
 
 afterAll(async () => {
@@ -30,11 +30,11 @@ afterAll(async () => {
 /** Runs the runner in the fixture folder and returns its exit code, stdout and stderr. */
 async function run(
 	names: string[],
-	env: Record<string, string> = {},
+	verbose = false,
 ): Promise<{ code: number; out: string; err: string }> {
 	const proc = Bun.spawn(["bun", RUNNER, ...names], {
 		cwd: scratch,
-		env: { ...process.env, VERBOSE: "", ...env },
+		env: { ...process.env, VERBOSE: verbose ? "1" : "" },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -45,7 +45,7 @@ async function run(
 	return { code: await proc.exited, out, err };
 }
 
-describe("run-silent", () => {
+describe("scripts/check.ts", () => {
 	test("a passing step prints one line and hides its output", async () => {
 		const { code, out } = await run(["ok"]);
 		expect(code).toBe(0);
@@ -72,7 +72,7 @@ describe("run-silent", () => {
 	});
 
 	test("VERBOSE=1 streams the output of each step and still marks each step", async () => {
-		const { code, out } = await run(["ok", "after"], { VERBOSE: "1" });
+		const { code, out } = await run(["ok", "after"], true);
 		expect(code).toBe(0);
 		expect(out).toContain("ok-output");
 		expect(out).toContain("✓ after");

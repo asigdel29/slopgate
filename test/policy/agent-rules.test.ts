@@ -9,25 +9,26 @@
 
 import { describe, expect, test } from "bun:test";
 import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { RULE_SUFFIX, ruleLink } from "../../src/init.ts";
+import { PACKAGE_DIR } from "../../src/measure.ts";
 
-const ROOT = resolve(import.meta.dir, "../..");
-const INSTRUCTIONS = join(ROOT, ".github/instructions");
-const RULES = join(ROOT, ".claude/rules");
-const SUFFIX = ".instructions.md";
+const INSTRUCTIONS = join(PACKAGE_DIR, ".github/instructions");
+const RULES = join(PACKAGE_DIR, ".claude/rules");
 
 /** Rule names, from the instruction file names. */
 const NAMES = readdirSync(INSTRUCTIONS)
-	.filter((file) => file.endsWith(SUFFIX))
-	.map((file) => file.slice(0, -SUFFIX.length));
+	.filter((file) => file.endsWith(RULE_SUFFIX))
+	.map((file) => file.slice(0, -RULE_SUFFIX.length));
 
 /** The `applyTo:` globs and the `paths:` list from one rule's frontmatter. */
 function frontmatter(name: string): { applyTo: string[]; paths: string[] } {
-	const text = readFileSync(join(INSTRUCTIONS, name + SUFFIX), "utf8");
-	const block = /^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? "";
-	const applyTo = /^applyTo: "([^"]*)"$/m.exec(block)?.[1]?.split(",") ?? [];
-	const paths = [...block.matchAll(/^ {2}- "([^"]*)"$/gm)].map((match) => match[1] ?? "");
-	return { applyTo, paths };
+	const text = readFileSync(join(INSTRUCTIONS, name + RULE_SUFFIX), "utf8");
+	const parsed: unknown = Bun.YAML.parse(/^---\n([\s\S]*?)\n---\n/.exec(text)?.[1] ?? "");
+	const fields = typeof parsed === "object" && parsed !== null ? parsed : {};
+	const applyTo = "applyTo" in fields && typeof fields.applyTo === "string" ? fields.applyTo : "";
+	const paths = "paths" in fields && Array.isArray(fields.paths) ? fields.paths.map(String) : [];
+	return { applyTo: applyTo === "" ? [] : applyTo.split(","), paths };
 }
 
 describe("agent rules", () => {
@@ -44,11 +45,13 @@ describe("agent rules", () => {
 	test.each(NAMES)("%s: .claude/rules links to the rule file", (name) => {
 		const link = join(RULES, `${name}.md`);
 		expect(lstatSync(link).isSymbolicLink()).toBe(true);
-		expect(readlinkSync(link)).toBe(`../../.github/instructions/${name}${SUFFIX}`);
+		expect(readlinkSync(link)).toBe(ruleLink(name));
 	});
 
 	test.each(NAMES)("%s: the AGENTS.md table names the rule", (name) => {
-		expect(readFileSync(join(ROOT, "AGENTS.md"), "utf8")).toContain(`\`${name}${SUFFIX}\``);
+		expect(readFileSync(join(PACKAGE_DIR, "AGENTS.md"), "utf8")).toContain(
+			`\`${name}${RULE_SUFFIX}\``,
+		);
 	});
 
 	test("every .claude/rules link has a rule file behind it", () => {
