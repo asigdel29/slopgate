@@ -58,7 +58,12 @@ slopgate is not on npm. Add it from GitHub:
 
 ```sh
 bun add -d github:asigdel29/slopgate
+bun pm trust @ast-grep/cli
 ```
+
+Bun blocks dependency postinstall scripts by default. The second command lets
+the ast-grep postinstall put the real binary in place. Without it, ast-grep is a
+stub and every scan fails.
 
 It needs [Bun](https://bun.sh). The two analysers that it calls
 ([ast-grep](https://ast-grep.github.io) for parsing,

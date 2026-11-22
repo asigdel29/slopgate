@@ -97,6 +97,7 @@ describe("formatHotCallables", () => {
 	});
 });
 
+/** A config that measures one fixture file and gates nothing. */
 function configFor(language: "typescript" | "swift", file: string): SlopConfig {
 	return {
 		languages: { [language]: { include: [file], exclude: [] } },

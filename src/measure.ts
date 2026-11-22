@@ -41,6 +41,10 @@ function rulesDir(): string {
 	return process.env.SLOP_RULES_DIR ?? join(PACKAGE_DIR, "rules");
 }
 
+/**
+ * The rule pack's version from its VERSION file, or 0 when the file is absent.
+ * Version 0 turns the rule pack off, so verbosity counts clones only.
+ */
 async function loadRulePackVersion(): Promise<number> {
 	const file = Bun.file(join(rulesDir(), "VERSION"));
 	if (!(await file.exists())) return 0;

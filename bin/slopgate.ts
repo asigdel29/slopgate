@@ -58,10 +58,7 @@ const USAGE = `slopgate [--root <dir>] [--config <path>] [--base <ref>] [--repor
                     still gate — one scan for both the verdict and the numbers
   --help            this message
 
-slopgate init [--root <dir>] [--force]
-
-  Copy the agent rules, skills, slop config and CI workflow into the repository.
-  Existing files are skipped unless --force is given.`;
+slopgate init --help   set up a repository (see its own help)`;
 
 export function parseArgs(argv: string[]): Options {
 	let root = process.cwd();

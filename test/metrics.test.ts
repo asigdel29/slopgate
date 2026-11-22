@@ -115,6 +115,7 @@ describe("computeVerbosity (Eq. 4)", () => {
 	});
 });
 
+/** The source-line numbers of `source`, in order, with `comments` as comment spans. */
 function lines(source: string, comments: Array<[number, number]> = []): number[] {
 	return [...classifyLines(Buffer.from(source, "utf8"), comments)].toSorted((a, b) => a - b);
 }
@@ -158,7 +159,10 @@ describe("classifyLines", () => {
 	});
 });
 
-// Byte spans are what attribution actually uses; lines only drive SLOC.
+/**
+ * A structural match with the given rule and byte span. Byte spans are what
+ * attribution uses; lines only drive SLOC.
+ */
 function match(ruleId: string, startByte: number, endByte: number, startLine = 0, endLine = 0) {
 	return {
 		ruleId,

@@ -4,7 +4,7 @@
 // in .github/instructions, the skills in .claude/skills, an example slop config
 // and an example CI workflow. Copying the same files keeps one source for both.
 
-import { copyFile, lstat, mkdir, symlink, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, realpath, symlink, unlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { PACKAGE_DIR } from "./measure.ts";
@@ -18,11 +18,12 @@ type KitFile = { from: string; to: string };
 /** What init did, as target-relative paths, so the caller can report it. */
 type InitResult = { created: string[]; skipped: string[] };
 
-/** Package-relative paths of the files, dotfiles included, that match `pattern`. */
+/**
+ * Package-relative paths of the files that match `pattern`. Dotfiles such as
+ * .DS_Store are left out, so a local clone cannot leak them into a target.
+ */
 function scanPackage(pattern: string): Promise<string[]> {
-	return Array.fromAsync(
-		new Bun.Glob(pattern).scan({ cwd: PACKAGE_DIR, dot: true, onlyFiles: true }),
-	);
+	return Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: PACKAGE_DIR, onlyFiles: true }));
 }
 
 /**
@@ -59,8 +60,14 @@ async function exists(path: string): Promise<boolean> {
  * Claude Code reads it. Never overwrites a path unless `force` is set, so a
  * second run is safe and keeps local edits. On `force` an existing path is
  * removed first, because symlink() does not replace.
+ *
+ * Refuses to run on the package itself: there the source and the destination
+ * of each kit file are the same path, and `force` would delete it.
  */
 async function init(target: string, force: boolean): Promise<InitResult> {
+	if ((await realpath(target).catch(() => target)) === (await realpath(PACKAGE_DIR))) {
+		throw new Error(`${target} is the slopgate package itself; run init in another repository`);
+	}
 	const result: InitResult = { created: [], skipped: [] };
 	const place = async (to: string, write: (path: string) => Promise<void>): Promise<void> => {
 		const path = join(target, to);
@@ -87,9 +94,19 @@ async function init(target: string, force: boolean): Promise<InitResult> {
 	return result;
 }
 
-/** What to do after init, printed once at the end. */
+/** How to call the subcommand, printed for --help. */
+const INIT_USAGE = `slopgate init [--root <dir>] [--force]
+
+  Copy the agent rules, skills, slop config and CI workflow into the repository.
+  Existing files are skipped unless --force is given.`;
+
+/**
+ * What to do after init, printed once at the end. Bun blocks the postinstall
+ * that puts the real ast-grep binary in place, so trusting it comes first.
+ */
 const NEXT_STEPS = `Next steps:
-  1. bun add -d github:asigdel29/slopgate
+  1. Run: bun pm trust @ast-grep/cli
+     Bun blocks its postinstall by default, and without it ast-grep is a stub.
   2. Edit the include globs in slop.config.json for this repository.
   3. Add this line to AGENTS.md: "Before you edit a file, read each rule in
      .github/instructions whose applyTo glob matches it."
@@ -102,9 +119,17 @@ const NEXT_STEPS = `Next steps:
 export async function runInit(argv: string[]): Promise<number> {
 	const { values } = parseArgs({
 		args: argv,
-		options: { root: { type: "string", default: "." }, force: { type: "boolean", default: false } },
+		options: {
+			root: { type: "string", default: "." },
+			force: { type: "boolean", default: false },
+			help: { type: "boolean", short: "h", default: false },
+		},
 		strict: true,
 	});
+	if (values.help) {
+		console.log(INIT_USAGE);
+		return 0;
+	}
 	const { created, skipped } = await init(resolve(values.root), values.force);
 	for (const path of created) console.log(`created  ${path}`);
 	for (const path of skipped) console.log(`skipped  ${path} (exists; --force overwrites)`);

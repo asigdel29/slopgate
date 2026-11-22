@@ -55,6 +55,7 @@ function slocWithin(sourceLines: Set<number>, startLine: number, endLine: number
  */
 const MULTI_CLAUSE_STATEMENT_RULES = ["dp-if", "dp-guard"];
 
+/** A `meta-condition-binding` match: one binding clause of a multi-clause condition. */
 function isConditionBindingRule(ruleId: string): boolean {
 	return ruleId.startsWith("meta-condition-binding");
 }
@@ -90,6 +91,7 @@ function extraConditionComplexity(statements: Span[], bindings: Span[]): Map<num
 	return perStatement;
 }
 
+/** A `callable-*` match: the span of one named callable. */
 function isCallableRule(ruleId: string): boolean {
 	return ruleId.startsWith("callable-");
 }
@@ -105,6 +107,7 @@ const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
 	["callable-deinit", "deinit"],
 ];
 
+/** A `dp-*` match: one decision point, which adds 1 to its callable's CC. */
 function isDecisionPointRule(ruleId: string): boolean {
 	return ruleId.startsWith("dp-");
 }

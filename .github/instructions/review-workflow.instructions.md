@@ -6,7 +6,7 @@ applyTo: "**"
 
 ## The gate
 
-- Run `bun run check`. It runs the same steps as CI, in the same order, and stops at the first failure.
+- Run `bun run check`. It runs the static and test steps of CI, in the same order, and stops at the first failure. CI also runs a secret scan.
 - Fix a step with its own script, for example `bun run fmt` or `bun run lint:fix`. Then run `bun run check` again.
 - The slop step compares with the base branch. CI compares with the merge base of the pull request.
 

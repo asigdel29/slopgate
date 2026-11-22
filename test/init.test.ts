@@ -6,7 +6,7 @@
 // `init` reaches runInit and that a bad argument writes nothing.
 
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
-import { lstat, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../src/init.ts";
@@ -59,6 +59,29 @@ describe("slopgate init", () => {
 		expect(await readFile(config, "utf8")).toBe("{}\n");
 	});
 
+	test("--help prints the usage, exits 0 and writes nothing", async () => {
+		const log = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			expect(await runInit(["--help"])).toBe(0);
+			expect(String(log.mock.calls[0]?.[0])).toContain("slopgate init [--root <dir>]");
+		} finally {
+			log.mockRestore();
+		}
+	});
+
+	test("refuses to run on the slopgate package itself", async () => {
+		const files = await Array.fromAsync(
+			new Bun.Glob("**/*").scan({ cwd: join(import.meta.dir, "..", ".claude") }),
+		);
+		await expect(runInit(["--root", join(import.meta.dir, ".."), "--force"])).rejects.toThrow(
+			"slopgate package itself",
+		);
+		const after = await Array.fromAsync(
+			new Bun.Glob("**/*").scan({ cwd: join(import.meta.dir, "..", ".claude") }),
+		);
+		expect(after.toSorted()).toEqual(files.toSorted());
+	});
+
 	test("--force overwrites a local edit and replaces each link", async () => {
 		const { code, out } = await init("--force");
 		expect(code).toBe(0);
@@ -76,8 +99,17 @@ describe("slopgate init through the CLI", () => {
 	});
 
 	test("an unknown argument fails and writes nothing", async () => {
-		const proc = Bun.spawn(["bun", CLI, "init", "--bogus"], { stdout: "pipe", stderr: "pipe" });
-		expect(await proc.exited).not.toBe(0);
-		expect(await new Response(proc.stdout).text()).not.toContain("created");
+		const empty = await mkdtemp(join(tmpdir(), "slopgate-init-bad-"));
+		try {
+			const proc = Bun.spawn(["bun", CLI, "init", "--bogus"], {
+				cwd: empty,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			expect(await proc.exited).not.toBe(0);
+			expect(await readdir(empty)).toEqual([]);
+		} finally {
+			await rm(empty, { recursive: true, force: true });
+		}
 	});
 });
