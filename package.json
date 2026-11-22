@@ -38,11 +38,11 @@
     "self": "bun bin/slopgate.ts --report"
   },
   "dependencies": {
-    "@ast-grep/cli": "0.40.0",
+    "@ast-grep/cli": "0.51.3",
     "jscpd": "4.0.5"
   },
   "devDependencies": {
-    "@types/bun": "1.3.14",
+    "@types/bun": "1.4.4",
     "knip": "6.44.2",
     "oxfmt": "0.77.0",
     "oxlint": "1.92.0",
