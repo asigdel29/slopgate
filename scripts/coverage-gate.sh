@@ -10,7 +10,7 @@
 # Raise FLOOR when coverage climbs. Never lower it.
 set -eu
 
-FLOOR=92.5
+FLOOR=93.2
 
 rm -rf coverage
 bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
