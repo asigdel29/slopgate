@@ -85,6 +85,10 @@ const MULTI_CLAUSE_STATEMENT_RULE = /^dp-(?:if|guard)/;
 const INTRINSIC_NAMES: Array<[rulePrefix: string, name: string]> = [
 	["callable-init", "init"],
 	["callable-deinit", "deinit"],
+	["callable-anonymous-initializer", "init"],
+	["callable-secondary-constructor", "constructor"],
+	["callable-getter", "get"],
+	["callable-setter", "set"],
 ];
 
 /**
