@@ -5,7 +5,7 @@
 // renamed identifiers, which is what "structural" means) and covers
 // TypeScript, Swift and Kotlin with one tool.
 
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileMeasurement } from "./config.ts";
 import { runTool, withTempDir } from "./process.ts";
@@ -63,6 +63,9 @@ export async function findCloneLines(
 				String(MIN_LINES),
 				"--min-tokens",
 				String(MIN_TOKENS),
+				// jscpd 5 names a file by its basename alone, so two files with one
+				// name in two folders collide. Absolute paths keep every file distinct.
+				"--absolute",
 				"--silent",
 			],
 			cwd: root,
@@ -78,10 +81,13 @@ export async function findCloneLines(
 		}
 	});
 
+	// jscpd resolves symlinks in the paths it reports (on macOS, /var is a link
+	// to /private/var), so compare them with the resolved root.
+	const reportRoot = await realpath(root);
 	const sourceLinesByFile = new Map(measurements.map((m) => [m.file, m.sourceLines]));
 	for (const duplicate of report.duplicates ?? []) {
 		for (const ref of [duplicate.firstFile, duplicate.secondFile]) {
-			const file = relativeTo(root, ref.name);
+			const file = relativeTo(reportRoot, ref.name);
 			// jscpd lines are 1-based and inclusive.
 			const keys = sourceLineKeys({
 				file,

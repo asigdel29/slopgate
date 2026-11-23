@@ -9,9 +9,11 @@
 // itself, so the fixture and the assertion can be checked against each other.
 
 import { describe, expect, test } from "bun:test";
+import { symlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Callable, Language } from "../src/config.ts";
 import { measure } from "../src/measure.ts";
+import { withTempDir } from "../src/process.ts";
 import { configFor } from "./helpers.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -255,6 +257,24 @@ describe("kotlin clones", () => {
 				FIXTURES,
 			);
 			expect(metrics.detail.cloneLines).toBeGreaterThan(0);
+		},
+		TIMEOUT_MS,
+	);
+
+	test(
+		"finds the clone through a symlinked root",
+		async () => {
+			// jscpd reports resolved paths. The gate measures the base in a temp
+			// folder, and on macOS that folder is under the /var symlink.
+			await withTempDir("slop-link-", async (dir) => {
+				const link = join(dir, "fixtures");
+				await symlink(FIXTURES, link);
+				const { metrics } = await measure(
+					configFor("kotlin", ["kotlin/clone_a.kt", "kotlin/clone_b.kt"]),
+					link,
+				);
+				expect(metrics.detail.cloneLines).toBeGreaterThan(0);
+			});
 		},
 		TIMEOUT_MS,
 	);
